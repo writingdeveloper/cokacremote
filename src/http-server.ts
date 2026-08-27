@@ -7,6 +7,7 @@ import { createMcpHandler, isLegacyRequest } from "@modelcontextprotocol/server"
 import express, { type Request, type Response } from "express";
 
 import { createBearerAuth, createHostValidation } from "./auth.js";
+import { BusyError, ConcurrencyGate } from "./concurrency-gate.js";
 import type { AppConfig } from "./config.js";
 import { errorMessage } from "./errors.js";
 import { createMcpServer, type McpServices } from "./mcp-server.js";
@@ -91,7 +92,10 @@ export async function startHttpServer(
   });
   app.use(createHostValidation(config));
 
-  let activeMcpRequests = 0;
+  const requestGate = new ConcurrencyGate(
+    config.maxConcurrentToolCalls,
+    config.maxQueuedRequests,
+  );
   const oauthProvider = config.oauthEnabled ? new RemoteDevOAuthProvider(config) : undefined;
   if (oauthProvider) {
     app.get("/.well-known/oauth-protected-resource", (_request, response) => {
@@ -133,13 +137,16 @@ export async function startHttpServer(
 
   app.get("/health", (_request, response) => {
     const processes = services.processManager.stats();
+    const concurrency = requestGate.stats();
     response.json({
       status: "ok",
       service: "cokacremote",
       version: "0.1.0",
       transportMode: "stateless-json",
       activeMcpSessions: 0,
-      activeMcpRequests,
+      activeMcpRequests: concurrency.active,
+      queuedMcpRequests: concurrency.queued,
+      concurrency,
       managedProcesses: processes.running + processes.completedRetained,
       processes,
       unrestrictedHostAccess: true,
@@ -183,30 +190,27 @@ export async function startHttpServer(
   };
 
   const postHandler = async (request: Request, response: Response): Promise<void> => {
-    activeMcpRequests += 1;
-    let closed = false;
-    const closeRequest = async (): Promise<void> => {
-      if (closed) {
+    try {
+      await requestGate.run(async () => {
+        const webRequest = await toWebRequest(request, request.body);
+        if (await isLegacyRequest(webRequest, request.body)) {
+          await handleLegacyRequest(request, response);
+        } else {
+          await nodeMcpHandler(request, response, request.body);
+        }
+      });
+    } catch (error) {
+      if (error instanceof BusyError) {
+        if (!response.headersSent) {
+          response.set("Retry-After", "1");
+          rpcError(response, 429, error.message);
+        }
         return;
       }
-      closed = true;
-      activeMcpRequests = Math.max(0, activeMcpRequests - 1);
-    };
-    response.once("finish", () => void closeRequest());
-    response.once("close", () => void closeRequest());
-    try {
-      const webRequest = await toWebRequest(request, request.body);
-      if (await isLegacyRequest(webRequest, request.body)) {
-        await handleLegacyRequest(request, response);
-      } else {
-        await nodeMcpHandler(request, response, request.body);
-      }
-    } catch (error) {
       console.error("MCP POST failed:", errorMessage(error));
       if (!response.headersSent) {
         rpcError(response, 500, "Internal MCP server error");
       }
-      await closeRequest();
     }
   };
 
@@ -251,7 +255,6 @@ export async function startHttpServer(
 
   const close = async (): Promise<void> => {
     clearInterval(cleanupInterval);
-    activeMcpRequests = 0;
     await mcpHandler.close();
     await services.processManager.shutdown();
     await new Promise<void>((resolve, reject) => {

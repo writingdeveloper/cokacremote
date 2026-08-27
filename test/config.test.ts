@@ -8,6 +8,37 @@ import { loadConfig } from "../src/config.js";
 const testCwd = path.join(os.tmpdir(), "cokacremote-config-test");
 
 describe("loadConfig", () => {
+  it("parses request and process concurrency limits", () => {
+    const config = loadConfig(
+      {
+        MCP_AUTH_TOKEN: "secret",
+        MCP_MAX_CONCURRENT_TOOL_CALLS: "3",
+        MCP_MAX_CONCURRENT_PROCESSES: "5",
+        MCP_MAX_QUEUED_REQUESTS: "7",
+        MCP_PROCESS_YIELD_TIME_MS: "25000",
+        MCP_PROCESS_POLL_WAIT_MS: "20000",
+      },
+      testCwd,
+    );
+
+    expect(config).toMatchObject({
+      maxConcurrentToolCalls: 3,
+      maxConcurrentProcesses: 5,
+      maxQueuedRequests: 7,
+      processYieldTimeMs: 25000,
+      processPollWaitMs: 20000,
+    });
+    expect(() =>
+      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_MAX_CONCURRENT_TOOL_CALLS: "0" }, testCwd),
+    ).toThrow(/MCP_MAX_CONCURRENT_TOOL_CALLS/);
+    expect(() =>
+      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_MAX_CONCURRENT_PROCESSES: "0" }, testCwd),
+    ).toThrow(/MCP_MAX_CONCURRENT_PROCESSES/);
+    expect(() =>
+      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_MAX_QUEUED_REQUESTS: "-1" }, testCwd),
+    ).toThrow(/MCP_MAX_QUEUED_REQUESTS/);
+  });
+
   it("loads the documented ChatGPT Web runtime profile limits", () => {
     const profilePath = path.resolve("deploy/profiles/chatgpt-web.env.example");
     const env = Object.fromEntries(
@@ -27,6 +58,11 @@ describe("loadConfig", () => {
       maxRetainedProcessOutputBytes: 1048576,
       processRetentionMs: 900000,
       maxProcesses: 32,
+      maxConcurrentToolCalls: 8,
+      maxConcurrentProcesses: 8,
+      maxQueuedRequests: 32,
+      processYieldTimeMs: 30000,
+      processPollWaitMs: 30000,
       maxFileChunkBytes: 262144,
     });
   });

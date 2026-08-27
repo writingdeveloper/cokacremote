@@ -24,6 +24,11 @@ export interface AppConfig {
   maxRetainedProcessOutputBytes: number;
   processRetentionMs: number;
   maxProcesses: number;
+  maxConcurrentToolCalls: number;
+  maxConcurrentProcesses: number;
+  maxQueuedRequests: number;
+  processYieldTimeMs: number;
+  processPollWaitMs: number;
   maxFileChunkBytes: number;
   maxEditFileBytes: number;
   wakatimeEnabled: boolean;
@@ -208,6 +213,38 @@ export function loadConfig(
       128,
       "MCP_MAX_PROCESSES",
       1,
+    ),
+    maxConcurrentToolCalls: parseInteger(
+      env.MCP_MAX_CONCURRENT_TOOL_CALLS,
+      64,
+      "MCP_MAX_CONCURRENT_TOOL_CALLS",
+      1,
+    ),
+    maxConcurrentProcesses: parseInteger(
+      env.MCP_MAX_CONCURRENT_PROCESSES,
+      128,
+      "MCP_MAX_CONCURRENT_PROCESSES",
+      1,
+    ),
+    maxQueuedRequests: parseInteger(
+      env.MCP_MAX_QUEUED_REQUESTS,
+      128,
+      "MCP_MAX_QUEUED_REQUESTS",
+      0,
+    ),
+    processYieldTimeMs: parseInteger(
+      env.MCP_PROCESS_YIELD_TIME_MS,
+      10_000,
+      "MCP_PROCESS_YIELD_TIME_MS",
+      0,
+      30_000,
+    ),
+    processPollWaitMs: parseInteger(
+      env.MCP_PROCESS_POLL_WAIT_MS,
+      1000,
+      "MCP_PROCESS_POLL_WAIT_MS",
+      0,
+      300_000,
     ),
     maxFileChunkBytes: parseInteger(
       env.MCP_MAX_FILE_CHUNK_BYTES,

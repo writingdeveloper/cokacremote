@@ -97,9 +97,9 @@ export function registerExecTools(
                 .int()
                 .min(0)
                 .max(30_000)
-                .default(10_000)
+                .default(config.processYieldTimeMs)
                 .describe(
-                  "How long to wait for the process to exit before returning its current state. Zero returns immediately.",
+                  "How long to wait for the process to exit before returning its current state. Zero returns immediately. Longer waits reduce repeated browser polling/tool cards for ordinary commands.",
                 ),
               maxOutputBytes: maxOutputBytesSchema,
               outputMode: outputModeSchema,
@@ -176,9 +176,9 @@ export function registerExecTools(
                 .int()
                 .min(0)
                 .max(30_000)
-                .default(10_000)
+                .default(config.processYieldTimeMs)
                 .describe(
-                  "How long to wait for the script process to exit before returning its current state. Zero returns immediately.",
+                  "How long to wait for the script process to exit before returning its current state. Zero returns immediately. Longer waits reduce repeated browser polling/tool cards for ordinary scripts.",
                 ),
               maxOutputBytes: maxOutputBytesSchema,
               outputMode: outputModeSchema,
@@ -294,9 +294,9 @@ export function registerExecTools(
                 .int()
                 .min(0)
                 .max(300_000)
-                .default(1000)
+                .default(config.processPollWaitMs)
                 .describe(
-                  "How long to wait for output newer than afterSeq or for process exit. Zero returns immediately.",
+                  "How long to wait for output newer than afterSeq or for process exit. Zero returns immediately. Prefer long-poll waits for browser clients instead of frequent polling.",
                 ),
               maxOutputBytes: maxOutputBytesSchema,
               outputMode: outputModeSchema,

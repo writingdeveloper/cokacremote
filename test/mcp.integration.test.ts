@@ -187,6 +187,94 @@ describe("remote development MCP server", () => {
     }
   });
 
+  it("rejects excess concurrent MCP requests with 429 while existing work remains alive", async () => {
+    const busyDirectory = await mkdtemp(path.join(os.tmpdir(), "remote-dev-mcp-busy-test-"));
+    const busyConfig = loadConfig(
+      {
+        MCP_AUTH_TOKEN: "busy-secret",
+        MCP_HOST: "127.0.0.1",
+        MCP_DEFAULT_CWD: busyDirectory,
+        MCP_DEFAULT_SHELL: testBash(),
+        MCP_MAX_CONCURRENT_TOOL_CALLS: "1",
+        MCP_MAX_QUEUED_REQUESTS: "0",
+      },
+      busyDirectory,
+    );
+    busyConfig.port = 0;
+    const busyRunning = await startHttpServer(busyConfig, createServices(busyConfig));
+    const busyAddress = busyRunning.httpServer.address() as AddressInfo;
+    const busyEndpoint = new URL(`http://127.0.0.1:${busyAddress.port}${busyConfig.endpoint}`);
+    const postBusy = (body: unknown) =>
+      fetch(busyEndpoint, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer busy-secret",
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+    try {
+      const first = postBusy({
+        jsonrpc: "2.0",
+        id: 100,
+        method: "tools/call",
+        params: {
+          name: "exec_command",
+          arguments: {
+            cmd: "node -e \"setTimeout(() => console.log('first-alive'), 1200)\"",
+            yieldTimeMs: 2000,
+          },
+        },
+      });
+
+      let observedActive = false;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const health = (await (await fetch(new URL("/health", busyEndpoint))).json()) as {
+          concurrency?: { active?: number };
+        };
+        if (health.concurrency?.active === 1) {
+          observedActive = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(observedActive).toBe(true);
+
+      const rejected = await postBusy({
+        jsonrpc: "2.0",
+        id: 101,
+        method: "tools/list",
+        params: {},
+      });
+      expect(rejected.status).toBe(429);
+      const rejectedPayload = (await rejected.json()) as { error?: { message?: string } };
+      expect(rejectedPayload.error?.message).toMatch(/busy/i);
+
+      const firstResponse = await first;
+      expect(firstResponse.status).toBe(200);
+      const firstPayload = (await firstResponse.json()) as JsonRpcResponse;
+      const firstSessionId = firstPayload.result?.structuredContent?.sessionId;
+      expect(firstSessionId).toEqual(expect.any(String));
+      const completion = await postBusy({
+        jsonrpc: "2.0",
+        id: 102,
+        method: "tools/call",
+        params: {
+          name: "read_process",
+          arguments: { sessionId: firstSessionId, waitMs: 5000 },
+        },
+      });
+      expect(completion.status).toBe(200);
+      const completionPayload = (await completion.json()) as JsonRpcResponse;
+      expect(completionPayload.result?.structuredContent?.output).toContain("first-alive");
+    } finally {
+      await busyRunning.close();
+      await rm(busyDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("handles every tool call as an independent stateless request", async () => {
     const post = async (
       body: unknown,

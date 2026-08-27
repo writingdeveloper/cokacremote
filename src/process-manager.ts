@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { isAscii } from "node:buffer";
 
+import { BusyError } from "./concurrency-gate.js";
 import { errorMessage } from "./errors.js";
 import { signalProcessTree } from "./process-tree.js";
 
@@ -185,6 +186,8 @@ export interface ProcessManagerStats {
   running: number;
   completedRetained: number;
   capacity: number;
+  maxConcurrentProcesses: number;
+  runningCapacity: number;
   retainedOutputBytes: number;
   droppedOutputBytes: number;
 }
@@ -193,6 +196,7 @@ export interface ProcessManagerOptions {
   maxRetainedOutputBytes: number;
   processRetentionMs: number;
   maxProcesses: number;
+  maxConcurrentProcesses?: number | undefined;
   defaultMaxOutputBytes: number;
 }
 
@@ -207,6 +211,17 @@ export class ProcessManager {
   start(request: StartProcessRequest): string {
     this.prune();
     this.#makeCapacity();
+    const maxConcurrentProcesses =
+      this.#options.maxConcurrentProcesses ?? this.#options.maxProcesses;
+    const runningProcesses = [...this.#processes.values()].filter((managed) =>
+      this.#isRunning(managed),
+    ).length;
+    if (runningProcesses >= maxConcurrentProcesses) {
+      throw new BusyError(
+        `Maximum concurrent process count (${maxConcurrentProcesses}) reached; retry after a running process exits`,
+      );
+    }
+
 
     const child = spawn(request.executable, request.args, {
       cwd: request.cwd,
@@ -528,6 +543,11 @@ export class ProcessManager {
       running,
       completedRetained,
       capacity: this.#options.maxProcesses,
+      maxConcurrentProcesses: this.#options.maxConcurrentProcesses ?? this.#options.maxProcesses,
+      runningCapacity: Math.max(
+        0,
+        (this.#options.maxConcurrentProcesses ?? this.#options.maxProcesses) - running,
+      ),
       retainedOutputBytes,
       droppedOutputBytes,
     };

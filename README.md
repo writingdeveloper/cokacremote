@@ -153,12 +153,19 @@ MCP_MAX_OUTPUT_BYTES=131072
 MCP_MAX_RETAINED_PROCESS_OUTPUT_BYTES=1048576
 MCP_PROCESS_RETENTION_MS=900000
 MCP_MAX_PROCESSES=32
+MCP_MAX_CONCURRENT_TOOL_CALLS=8
+MCP_MAX_CONCURRENT_PROCESSES=8
+MCP_MAX_QUEUED_REQUESTS=32
+MCP_PROCESS_YIELD_TIME_MS=30000
+MCP_PROCESS_POLL_WAIT_MS=30000
 MCP_MAX_FILE_CHUNK_BYTES=262144
 ```
 
-These are deployment recommendations, not global defaults. They keep individual process responses at 128 KiB, retain up to 1 MiB per process for later polling, expire completed sessions after 15 minutes, cap retained process sessions at 32, and use 256 KiB file-transfer pages. This reduces browser memory and transport amplification without discarding output that is still inside the retained-output budget.
+These are deployment recommendations, not global defaults. They keep individual process responses at 128 KiB, retain up to 1 MiB per process for later polling, expire completed sessions after 15 minutes, cap retained process sessions at 32, bound concurrent MCP requests/processes, wait up to 30 seconds for ordinary commands, long-poll process reads for 30 seconds, and use 256 KiB file-transfer pages. This reduces browser memory and transport amplification without discarding output that is still inside the retained-output budget.
 
 Process tools default to `outputMode=compact`, which returns one canonical interleaved `output` string. Use `outputMode=streams` only when separate `stdout` and `stderr` are required, or `outputMode=metadata` when only lifecycle/counter state is needed.
+
+ChatGPT Web renders each MCP call as a separate tool card; the server cannot hide those UI cards. The browser profile reduces card churn by waiting longer inside the first command call and using long-poll reads. Agents should also batch related shell/read operations into one command when practical.
 
 Process output is cursor-paginated: pass the previous `nextSeq` as `afterSeq` until `hasMore=false`. File reads and downloads similarly continue from `nextOffset`. Smaller pages are safer for browser MCP clients because they bound each JSON response while preserving resumability; lowering a page size does not itself discard retained process output.
 

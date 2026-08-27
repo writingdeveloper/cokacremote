@@ -149,6 +149,39 @@ describe("ProcessManager", () => {
     expect(first.output + second.output).not.toContain("�");
   });
 
+  it("enforces a running-process ceiling independently from retained capacity", async () => {
+    manager = new ProcessManager({
+      maxRetainedOutputBytes: 1024 * 1024,
+      processRetentionMs: 60_000,
+      maxProcesses: 16,
+      maxConcurrentProcesses: 1,
+      defaultMaxOutputBytes: 1024 * 1024,
+    });
+    const runningId = manager.start({
+      ...nodeCommand('setTimeout(() => {}, 10_000)'),
+      cwd: process.cwd(),
+    });
+
+    expect(() =>
+      manager!.start({
+        ...nodeCommand('process.stdout.write("blocked")'),
+        cwd: process.cwd(),
+      }),
+    ).toThrow(/busy|concurrent process/i);
+    expect(manager.list({ runningOnly: true })).toEqual([
+      expect.objectContaining({ sessionId: runningId, running: true }),
+    ]);
+
+    await manager.terminate(runningId, "SIGKILL", 0, "metadata");
+    await manager.waitForExit(runningId, 5000);
+    const replacement = manager.start({
+      ...nodeCommand('process.stdout.write("replacement")'),
+      cwd: process.cwd(),
+    });
+    await manager.waitForExit(replacement, 2000);
+    expect((await manager.read(replacement)).output).toContain("replacement");
+  });
+
   it("filters process lists without mutating retained sessions", async () => {
     manager = createManager();
     const completedId = manager.start({

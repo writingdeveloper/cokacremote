@@ -26,6 +26,7 @@ export function createServices(config: AppConfig): McpServices {
       maxRetainedOutputBytes: config.maxRetainedProcessOutputBytes,
       processRetentionMs: config.processRetentionMs,
       maxProcesses: config.maxProcesses,
+      maxConcurrentProcesses: config.maxConcurrentProcesses,
       defaultMaxOutputBytes: config.maxOutputBytes,
     }),
     fileService: new FileService({
@@ -47,7 +48,7 @@ export function createMcpServer(config: AppConfig, services: McpServices): McpSe
     },
     {
       instructions:
-        "This server is an unrestricted remote development environment. Tools operate directly on the host with the MCP service process's full OS permissions. Use exec_command for shell, build, test, package, Git, service, and log workflows; run_script for complete Bash, Node.js, or Python scripts; and the file tools for direct file operations. Poll long-running commands with read_process or write_stdin.",
+        "This server is an unrestricted remote development environment. Tools operate directly on the host with the MCP service process's full OS permissions. Use exec_command for shell, build, test, package, Git, service, and log workflows; run_script for complete Bash, Node.js, or Python scripts; and the file tools for direct file operations. For browser clients, batch related shell work into one exec_command or run_script call when practical. Let ordinary commands wait for their configured yield time, and poll genuinely long-running commands with read_process using afterSeq plus a long waitMs instead of frequent short polls. Use write_stdin only when interaction is required.",
       capabilities: { logging: {} },
     },
   );
