@@ -2,7 +2,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { ProcessReadResult } from "./process-manager.js";
+import type { ProcessOutputMode, ProcessReadResult } from "./process-manager.js";
 import { ProcessManager } from "./process-manager.js";
 
 export type ScriptRuntime = "bash" | "sh" | "node" | "python" | "custom";
@@ -18,6 +18,7 @@ export interface RunScriptRequest {
   timeoutMs?: number | undefined;
   yieldTimeMs?: number | undefined;
   maxOutputBytes?: number | undefined;
+  outputMode?: ProcessOutputMode | undefined;
   stdin?: string | undefined;
   keepScript?: boolean | undefined;
 }
@@ -99,6 +100,7 @@ export async function runScript(
   await processManager.waitForExit(sessionId, request.yieldTimeMs ?? 10_000);
   const result = await processManager.read(sessionId, {
     maxOutputBytes: request.maxOutputBytes,
+    outputMode: request.outputMode,
   });
   return {
     ...result,

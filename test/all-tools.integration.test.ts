@@ -200,16 +200,20 @@ describe.sequential("all registered MCP tools", () => {
       env: { E2E_VALUE: "env-ok" },
       yieldTimeMs: 3000,
     });
-    expect(completed).toMatchObject({ completed: true, exitCode: 7, stderr: "stderr-ok" });
-    expect(String(completed.stdout)).toContain("env-ok");
-    expect(String(completed.stdout)).toContain(path.basename(testRoot));
+    expect(completed).toMatchObject({ completed: true, exitCode: 7 });
+    expect(completed).not.toHaveProperty("stdout");
+    expect(completed).not.toHaveProperty("stderr");
+    expect(String(completed.output)).toContain("env-ok");
+    expect(String(completed.output)).toContain(path.basename(testRoot));
+    expect(String(completed.output)).toContain("stderr-ok");
     expect(await callOk("exec_command", {
       cmd: "printf shell-ok",
       workdir: testRoot,
       shell: testBash(),
       login: false,
       yieldTimeMs: 3000,
-    })).toMatchObject({ completed: true, exitCode: 0, stdout: "shell-ok" });
+      outputMode: "streams",
+    })).toMatchObject({ completed: true, exitCode: 0, output: "shell-ok", stdout: "shell-ok", stderr: "" });
 
     const bounded = await callOk("exec_command", {
       cmd: "node -e \"process.stdout.write('x'.repeat(20000))\"",
@@ -218,7 +222,7 @@ describe.sequential("all registered MCP tools", () => {
       maxOutputBytes: 16384,
     });
     expect(bounded).toMatchObject({ completed: true, exitCode: 0, hasMore: true });
-    let boundedOutput = String(bounded.stdout);
+    let boundedOutput = String(bounded.output);
     let boundedCursor = Number(bounded.nextSeq);
     for (let page = 0; page < 5 && bounded.hasMore === true; page += 1) {
       const next = await callOk("read_process", {
@@ -226,11 +230,18 @@ describe.sequential("all registered MCP tools", () => {
         afterSeq: boundedCursor,
         maxOutputBytes: 16384,
       });
-      boundedOutput += String(next.stdout);
+      boundedOutput += String(next.output);
       boundedCursor = Number(next.nextSeq);
       bounded.hasMore = next.hasMore;
     }
     expect(boundedOutput).toBe("x".repeat(20000));
+    const metadataOnly = await callOk("read_process", {
+      sessionId: bounded.sessionId,
+      outputMode: "metadata",
+    });
+    expect(metadataOnly).toMatchObject({ output: "", totalOutputBytes: 20000 });
+    expect(metadataOnly).not.toHaveProperty("stdout");
+    expect(metadataOnly).not.toHaveProperty("stderr");
 
     const timedOut = await callOk("exec_command", {
       cmd: "sleep 10",
@@ -240,13 +251,15 @@ describe.sequential("all registered MCP tools", () => {
     });
     expect(timedOut).toMatchObject({ timedOut: true });
     expect(String(timedOut.error)).toContain("timeout");
-    const timedOutFinal = timedOut.completed === true
-      ? timedOut
-      : await callOk("read_process", {
-          sessionId: timedOut.sessionId,
-          afterSeq: timedOut.nextSeq,
-          waitMs: 7000,
-        });
+    let timedOutFinal = timedOut;
+    const timeoutDeadline = Date.now() + 15_000;
+    while (timedOutFinal.completed !== true && Date.now() < timeoutDeadline) {
+      timedOutFinal = await callOk("read_process", {
+        sessionId: timedOut.sessionId,
+        afterSeq: timedOutFinal.nextSeq,
+        waitMs: 3000,
+      });
+    }
     expect(timedOutFinal).toMatchObject({ completed: true, running: false, timedOut: true });
 
     const interactive = await callOk("exec_command", {
@@ -262,7 +275,7 @@ describe.sequential("all registered MCP tools", () => {
       closeStdin: true,
       yieldTimeMs: 3000,
     });
-    expect(String(written.stdout)).toContain("interactive-ok");
+    expect(String(written.output)).toContain("interactive-ok");
     const read = await callOk("read_process", {
       sessionId: interactiveSession,
       afterSeq: written.nextSeq,
@@ -282,7 +295,7 @@ describe.sequential("all registered MCP tools", () => {
       keepScript: true,
     });
     expect(script).toMatchObject({ completed: true, exitCode: 0 });
-    expect(JSON.parse(String(script.stdout).trim())).toEqual({
+    expect(JSON.parse(String(script.output).trim())).toEqual({
       arg: "argument-ok",
       env: "script-env-ok",
       stdin: "script-stdin-ok",
@@ -320,7 +333,7 @@ describe.sequential("all registered MCP tools", () => {
       expect(runtimeResult).toMatchObject({
         completed: true,
         exitCode: 0,
-        stdout: request.expected,
+        output: request.expected,
       });
     }
 
@@ -334,7 +347,7 @@ describe.sequential("all registered MCP tools", () => {
       expect(pythonResult).toMatchObject({
         completed: true,
         exitCode: 0,
-        stdout: "python-ok\n",
+        output: "python-ok\n",
       });
     } else {
       expect(pythonResult).toMatchObject({ completed: true, exitCode: null });
@@ -637,7 +650,7 @@ describe.sequential("all registered MCP tools", () => {
       yieldTimeMs: 3000,
     });
     expect(await callOk("apply_patch", {
-      patch: generatedPatch.stdout,
+      patch: generatedPatch.output,
       cwd: path.join(testRoot, "three-way"),
       threeWay: true,
     })).toMatchObject({ applied: true });

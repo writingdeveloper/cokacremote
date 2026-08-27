@@ -144,10 +144,13 @@ export interface StartProcessRequest {
   cleanup?: (() => Promise<void>) | undefined;
 }
 
+export type ProcessOutputMode = "compact" | "streams" | "metadata";
+
 export interface ReadProcessRequest {
   afterSeq?: number | undefined;
   waitMs?: number | undefined;
   maxOutputBytes?: number | undefined;
+  outputMode?: ProcessOutputMode | undefined;
 }
 
 export interface ProcessReadResult {
@@ -163,8 +166,8 @@ export interface ProcessReadResult {
   signal: NodeJS.Signals | null | undefined;
   timedOut: boolean;
   error: string | undefined;
-  stdout: string;
-  stderr: string;
+  stdout?: string | undefined;
+  stderr?: string | undefined;
   output: string;
   nextSeq: number;
   hasMore: boolean;
@@ -282,6 +285,7 @@ export class ProcessManager {
       await this.#waitForOutput(managed, afterSeq, waitMs);
     }
 
+    const outputMode = request.outputMode ?? "compact";
     const maxOutputBytes = Math.max(
       OUTPUT_CHUNK_BYTES,
       Math.min(
@@ -292,21 +296,29 @@ export class ProcessManager {
     const eligible = managed.chunks.filter((chunk) => chunk.seq > afterSeq);
     const selected: OutputChunk[] = [];
     let selectedBytes = 0;
-    for (const chunk of eligible) {
-      if (selectedBytes + chunk.data.length > maxOutputBytes) {
-        break;
+    if (outputMode !== "metadata") {
+      for (const chunk of eligible) {
+        if (selectedBytes + chunk.data.length > maxOutputBytes) {
+          break;
+        }
+        selected.push(chunk);
+        selectedBytes += chunk.data.length;
       }
-      selected.push(chunk);
-      selectedBytes += chunk.data.length;
     }
 
-    const stdout = Buffer.concat(
-      selected.filter((chunk) => chunk.stream === "stdout").map((chunk) => chunk.data),
-    ).toString("utf8");
-    const stderr = Buffer.concat(
-      selected.filter((chunk) => chunk.stream === "stderr").map((chunk) => chunk.data),
-    ).toString("utf8");
-    const output = Buffer.concat(selected.map((chunk) => chunk.data)).toString("utf8");
+    const output = outputMode === "metadata"
+      ? ""
+      : Buffer.concat(selected.map((chunk) => chunk.data)).toString("utf8");
+    const stdout = outputMode === "streams"
+      ? Buffer.concat(
+          selected.filter((chunk) => chunk.stream === "stdout").map((chunk) => chunk.data),
+        ).toString("utf8")
+      : undefined;
+    const stderr = outputMode === "streams"
+      ? Buffer.concat(
+          selected.filter((chunk) => chunk.stream === "stderr").map((chunk) => chunk.data),
+        ).toString("utf8")
+      : undefined;
     const nextSeq = selected.at(-1)?.seq ?? afterSeq;
     const now = managed.endedAt ?? Date.now();
 
@@ -326,8 +338,8 @@ export class ProcessManager {
       signal: managed.signal,
       timedOut: managed.timedOut,
       error: managed.error,
-      stdout,
-      stderr,
+      ...(stdout === undefined ? {} : { stdout }),
+      ...(stderr === undefined ? {} : { stderr }),
       output,
       nextSeq,
       hasMore: eligible.length > selected.length,
@@ -396,6 +408,7 @@ export class ProcessManager {
     sessionId: string,
     signal: NodeJS.Signals = "SIGTERM",
     graceMs = 3000,
+    outputMode: ProcessOutputMode = "compact",
   ): Promise<ProcessReadResult> {
     const managed = this.#require(sessionId);
     if (this.#isRunning(managed)) {
@@ -414,7 +427,7 @@ export class ProcessManager {
         await this.waitForExit(sessionId, 3000);
       }
     }
-    return this.read(sessionId);
+    return this.read(sessionId, { outputMode });
   }
 
   list(): Array<{

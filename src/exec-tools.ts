@@ -62,6 +62,12 @@ export function registerExecTools(
     .max(config.maxOutputBytes)
     .default(config.maxOutputBytes)
     .describe("Maximum retained process-output bytes included in this result.");
+  const outputModeSchema = z
+    .enum(["compact", "streams", "metadata"])
+    .default("compact")
+    .describe(
+      "Process output shape. compact returns canonical interleaved output, streams also includes stdout/stderr, and metadata returns state without output bytes.",
+    );
 
   server.registerTool(
     "exec_command",
@@ -96,6 +102,7 @@ export function registerExecTools(
                   "How long to wait for the process to exit before returning its current state. Zero returns immediately.",
                 ),
               maxOutputBytes: maxOutputBytesSchema,
+              outputMode: outputModeSchema,
             }),
       annotations: TOOL_ANNOTATIONS.destructiveNonIdempotentOpen,
       _meta: authMetadata,
@@ -110,6 +117,7 @@ export function registerExecTools(
       timeoutMs,
       yieldTimeMs,
       maxOutputBytes,
+      outputMode,
     }) =>
       runTool(async () => {
         const cwd = fileService.resolve(".", workdir);
@@ -128,6 +136,7 @@ export function registerExecTools(
         await processManager.waitForExit(sessionId, yieldTimeMs);
         const result = await processManager.read(sessionId, {
           maxOutputBytes,
+          outputMode,
         });
         trackProcessCompletion(wakatimeTracker, result);
         return processResult(result);
@@ -172,6 +181,7 @@ export function registerExecTools(
                   "How long to wait for the script process to exit before returning its current state. Zero returns immediately.",
                 ),
               maxOutputBytes: maxOutputBytesSchema,
+              outputMode: outputModeSchema,
               keepScript: z
                 .boolean()
                 .default(false)
@@ -194,6 +204,7 @@ export function registerExecTools(
       timeoutMs,
       yieldTimeMs,
       maxOutputBytes,
+      outputMode,
       keepScript,
     }) =>
       runTool(async () => {
@@ -211,6 +222,7 @@ export function registerExecTools(
           timeoutMs,
           yieldTimeMs,
           maxOutputBytes,
+          outputMode,
           keepScript,
         });
         wakatimeTracker.rememberProcess(result.sessionId, cwd, snapshot);
@@ -246,11 +258,12 @@ export function registerExecTools(
                   "When stdin remains open, wait this long for output or process exit. When closeStdin=true, wait this long for process exit before returning.",
                 ),
               maxOutputBytes: maxOutputBytesSchema,
+              outputMode: outputModeSchema,
             }),
       annotations: TOOL_ANNOTATIONS.destructiveNonIdempotentOpen,
       _meta: authMetadata,
     },
-    async ({ sessionId, chars, closeStdin, afterSeq, yieldTimeMs, maxOutputBytes }) =>
+    async ({ sessionId, chars, closeStdin, afterSeq, yieldTimeMs, maxOutputBytes, outputMode }) =>
       runTool(async () => {
         await processManager.write(sessionId, chars, closeStdin);
         if (closeStdin) {
@@ -260,6 +273,7 @@ export function registerExecTools(
           afterSeq,
           waitMs: closeStdin ? 0 : yieldTimeMs,
           maxOutputBytes,
+          outputMode,
         });
         trackProcessCompletion(wakatimeTracker, result);
         return processResult(result);
@@ -285,16 +299,18 @@ export function registerExecTools(
                   "How long to wait for output newer than afterSeq or for process exit. Zero returns immediately.",
                 ),
               maxOutputBytes: maxOutputBytesSchema,
+              outputMode: outputModeSchema,
             }),
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async ({ sessionId, afterSeq, waitMs, maxOutputBytes }) =>
+    async ({ sessionId, afterSeq, waitMs, maxOutputBytes, outputMode }) =>
       runTool(async () => {
         const result = await processManager.read(sessionId, {
           afterSeq,
           waitMs,
           maxOutputBytes,
+          outputMode,
         });
         trackProcessCompletion(wakatimeTracker, result);
         return processResult(result);
@@ -322,13 +338,14 @@ export function registerExecTools(
                 .describe(
                   "For SIGINT or SIGTERM, milliseconds before SIGKILL escalation; zero disables escalation. The call waits at most one second before returning.",
                 ),
+              outputMode: outputModeSchema,
             }),
       annotations: TOOL_ANNOTATIONS.destructiveNonIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ sessionId, signal, graceMs }) =>
+    async ({ sessionId, signal, graceMs, outputMode }) =>
       runTool(async () => {
-        const result = await processManager.terminate(sessionId, signal, graceMs);
+        const result = await processManager.terminate(sessionId, signal, graceMs, outputMode);
         trackProcessCompletion(wakatimeTracker, result);
         return processResult(result);
       }),

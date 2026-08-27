@@ -164,7 +164,7 @@ describe("remote development MCP server", () => {
       expect(scriptResult.structuredContent).toMatchObject({
         completed: true,
         exitCode: 0,
-        stdout: "42\n",
+        output: "42\n",
       });
 
       const writeResult = await client.callTool({
@@ -265,7 +265,7 @@ describe("remote development MCP server", () => {
     });
     expect(readResponse.status).toBe(200);
     const read = (await readResponse.json()) as JsonRpcResponse;
-    expect(read.result?.structuredContent?.stdout).toContain("stateless-ok");
+    expect(read.result?.structuredContent?.output).toContain("stateless-ok");
     const nextSeq = read.result?.structuredContent?.nextSeq;
     expect(nextSeq).toEqual(expect.any(Number));
 

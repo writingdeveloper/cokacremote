@@ -27,7 +27,7 @@ describe("ProcessManager", () => {
     });
 
     await manager.waitForExit(sessionId, 2000);
-    const result = await manager.read(sessionId);
+    const result = await manager.read(sessionId, { outputMode: "streams" });
 
     expect(result).toMatchObject({
       running: false,
@@ -40,6 +40,31 @@ describe("ProcessManager", () => {
     expect(result.output).toContain("stderr");
   });
 
+  it("shapes process output according to outputMode", async () => {
+    manager = createManager();
+    const sessionId = manager.start({
+      ...nodeCommand('process.stdout.write("hello"); process.stderr.write(" error");'),
+      cwd: process.cwd(),
+    });
+
+    await manager.waitForExit(sessionId, 2000);
+    const compact = await manager.read(sessionId, { outputMode: "compact" });
+    expect(compact.output).toContain("hello");
+    expect(compact.stdout).toBeUndefined();
+    expect(compact.stderr).toBeUndefined();
+
+    const streams = await manager.read(sessionId, { outputMode: "streams" });
+    expect(streams.output).toContain("hello");
+    expect(streams.stdout).toBe("hello");
+    expect(streams.stderr).toBe(" error");
+
+    const metadata = await manager.read(sessionId, { outputMode: "metadata" });
+    expect(metadata.output).toBe("");
+    expect(metadata.stdout).toBeUndefined();
+    expect(metadata.stderr).toBeUndefined();
+    expect(metadata.totalOutputBytes).toBeGreaterThan(0);
+  });
+
   it("supports interactive stdin and closes cleanly", async () => {
     manager = createManager();
     const sessionId = manager.start({
@@ -49,7 +74,7 @@ describe("ProcessManager", () => {
 
     await manager.write(sessionId, "hello\n", true);
     await manager.waitForExit(sessionId, 2000);
-    const result = await manager.read(sessionId);
+    const result = await manager.read(sessionId, { outputMode: "streams" });
 
     expect(result.running).toBe(false);
     expect(result.exitCode).toBe(0);
@@ -94,7 +119,7 @@ describe("ProcessManager", () => {
       ...nodeCommand('process.stdin.destroy(); process.stdout.write("ready"); setTimeout(() => {}, 2000);'),
       cwd: process.cwd(),
     });
-    expect((await manager.read(sessionId, { waitMs: 1000 })).stdout).toContain("ready");
+    expect((await manager.read(sessionId, { waitMs: 1000 })).output).toContain("ready");
 
     await expect(manager.write(sessionId, "x".repeat(1024 * 1024))).rejects.toThrow();
     await new Promise<void>((resolve) => setImmediate(resolve));
