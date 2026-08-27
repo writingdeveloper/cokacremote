@@ -9,6 +9,16 @@ $nodeExe = if ([System.IO.Path]::IsPathRooted($nodeSetting)) { $nodeSetting } el
 $envFileValue = Get-CokacValue $config "MCP_ENV_FILE" ""
 $envFile = if ($envFileValue) { Resolve-CokacPath $config $envFileValue } else { "" }
 $restartSeconds = [int](Get-CokacValue $config "SUPERVISOR_RESTART_SECONDS" "5")
+function Clear-CokacEnvFileOverrides {
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return }
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match '^s*(?:exports+)?([A-Za-z_][A-Za-z0-9_]*)s*=') {
+            [Environment]::SetEnvironmentVariable($matches[1], $null, 'Process')
+        }
+    }
+}
+if ($envFile) { Clear-CokacEnvFileOverrides $envFile }
 $stdoutLog = Resolve-CokacPath $config (Get-CokacValue $config "SERVER_STDOUT_LOG" "server.out.log")
 $stderrLog = Resolve-CokacPath $config (Get-CokacValue $config "SERVER_STDERR_LOG" "server.err.log")
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $stdoutLog) | Out-Null
