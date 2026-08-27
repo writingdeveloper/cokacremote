@@ -118,10 +118,56 @@ describe("remote development MCP server", () => {
       result?: {
         supportedVersions?: string[];
         capabilities?: Record<string, unknown>;
+        ttlMs?: number;
+        cacheScope?: string;
       };
     };
     expect(payload.result?.supportedVersions).toContain("2026-07-28");
     expect(payload.result?.capabilities).toHaveProperty("tools");
+    expect(payload.result?.capabilities).not.toHaveProperty("tasks");
+    expect(payload.result?.ttlMs).toBe(300_000);
+    expect(payload.result?.cacheScope).toBe("private");
+  });
+
+  it("emits private five-minute cache hints on modern tools/list without legacy task metadata", async () => {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer integration-secret",
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "mcp-protocol-version": "2026-07-28",
+        "mcp-method": "tools/list",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/list",
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              name: "modern-tools-test",
+              version: "1.0.0",
+            },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      result?: {
+        tools?: Array<{ name: string; execution?: { taskSupport?: string } }>;
+        ttlMs?: number;
+        cacheScope?: string;
+      };
+    };
+    expect(payload.result?.tools?.length).toBeGreaterThan(0);
+    expect(payload.result?.tools?.every((tool) => tool.execution?.taskSupport === undefined)).toBe(true);
+    expect(payload.result?.ttlMs).toBe(300_000);
+    expect(payload.result?.cacheScope).toBe("private");
   });
 
   it("lists tools and executes script and file workflows", async () => {

@@ -144,6 +144,12 @@ These annotations are advisory client metadata, not access control. They do not 
 - MCP transport sessions and command process `sessionId` values are unrelated. A process `sessionId` returned by `exec_command` can be reused by later HTTP requests to `write_stdin`, `read_process`, and `terminate_process`.
 - Running and retained process state is stored in service memory and is lost when the service restarts.
 
+### MCP 2026 cache and long-running compatibility
+
+For MCP 2026-07-28 clients, `server/discover` and `tools/list` carry the SDK-supported private cache hint `ttlMs=300000` / `cacheScope=private`. Legacy 2025-era responses are unchanged by these hints.
+
+The installed MCP SDK 2.0.0 exposes the 2026 task method schemas but does not expose a server-side task store/manager runtime through `McpServer` or `createMcpHandler`. Its legacy `capabilities.tasks` and tool `execution.taskSupport` vocabulary is explicitly removed from the 2026 wire codec. `cokacremote` therefore does not advertise invented task capabilities. Long-running commands continue to use the existing in-memory process-session contract: `exec_command` or `run_script` returns a `sessionId`, then `read_process`, `write_stdin`, and `terminate_process` operate on that same process session.
+
 ## ChatGPT Web runtime profile
 
 For heavy browser-based MCP use, start from your normal deployment environment and overlay the values in `deploy/profiles/chatgpt-web.env.example`:
