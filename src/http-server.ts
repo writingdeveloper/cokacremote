@@ -132,6 +132,7 @@ export async function startHttpServer(
   const parseMcpJson = express.json({ limit: config.maxRequestBody });
 
   app.get("/health", (_request, response) => {
+    const processes = services.processManager.stats();
     response.json({
       status: "ok",
       service: "cokacremote",
@@ -139,7 +140,8 @@ export async function startHttpServer(
       transportMode: "stateless-json",
       activeMcpSessions: 0,
       activeMcpRequests,
-      managedProcesses: services.processManager.list().length,
+      managedProcesses: processes.running + processes.completedRetained,
+      processes,
       unrestrictedHostAccess: true,
       oauthEnabled: config.oauthEnabled,
     });

@@ -149,6 +149,82 @@ describe("ProcessManager", () => {
     expect(first.output + second.output).not.toContain("�");
   });
 
+  it("filters process lists without mutating retained sessions", async () => {
+    manager = createManager();
+    const completedId = manager.start({
+      ...nodeCommand('process.stdout.write("done")'),
+      cwd: process.cwd(),
+    });
+    const runningId = manager.start({
+      ...nodeCommand('setTimeout(() => {}, 10_000)'),
+      cwd: process.cwd(),
+    });
+    await manager.waitForExit(completedId, 2000);
+
+    expect(manager.list({ runningOnly: true })).toEqual([
+      expect.objectContaining({ sessionId: runningId, running: true }),
+    ]);
+    expect(manager.list({ since: Number.MAX_SAFE_INTEGER })).toEqual([]);
+    expect(manager.list({ limit: 1 })).toHaveLength(1);
+    expect(manager.list()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sessionId: completedId }),
+        expect.objectContaining({ sessionId: runningId }),
+      ]),
+    );
+  });
+
+  it("forgets completed sessions but never terminates running sessions implicitly", async () => {
+    manager = createManager();
+    const completedId = manager.start({
+      ...nodeCommand('process.stdout.write("done")'),
+      cwd: process.cwd(),
+    });
+    const runningId = manager.start({
+      ...nodeCommand('setTimeout(() => {}, 10_000)'),
+      cwd: process.cwd(),
+    });
+    await manager.waitForExit(completedId, 2000);
+
+    expect(manager.forget(completedId)).toBe(true);
+    await expect(manager.read(completedId)).rejects.toThrow("Unknown process session");
+    expect(manager.forget(completedId)).toBe(false);
+    expect(() => manager!.forget(runningId)).toThrow(/running process/i);
+    expect(manager.list({ runningOnly: true })).toEqual([
+      expect.objectContaining({ sessionId: runningId, running: true }),
+    ]);
+  });
+
+  it("clears only completed sessions and reports aggregate retained-process stats", async () => {
+    manager = createManager();
+    const first = manager.start({
+      ...nodeCommand('process.stdout.write("first")'),
+      cwd: process.cwd(),
+    });
+    const second = manager.start({
+      ...nodeCommand('process.stdout.write("second")'),
+      cwd: process.cwd(),
+    });
+    const runningId = manager.start({
+      ...nodeCommand('process.stdout.write("running"); setTimeout(() => {}, 10_000)'),
+      cwd: process.cwd(),
+    });
+    await Promise.all([manager.waitForExit(first, 2000), manager.waitForExit(second, 2000)]);
+    await manager.read(runningId, { waitMs: 1000 });
+
+    expect(manager.stats()).toMatchObject({
+      running: 1,
+      completedRetained: 2,
+      capacity: 16,
+      droppedOutputBytes: 0,
+    });
+    expect(manager.stats().retainedOutputBytes).toBeGreaterThanOrEqual(18);
+    expect(manager.clearCompleted(60_000)).toBe(0);
+    expect(manager.clearCompleted()).toBe(2);
+    expect(manager.stats()).toMatchObject({ running: 1, completedRetained: 0, capacity: 16 });
+    expect(manager.list()).toEqual([expect.objectContaining({ sessionId: runningId })]);
+  });
+
   it("lists processes without pruning and expires completed sessions independently", async () => {
     manager = new ProcessManager({
       maxRetainedOutputBytes: 1024 * 1024,

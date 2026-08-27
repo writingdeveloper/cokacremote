@@ -355,11 +355,78 @@ export function registerExecTools(
     "list_processes",
     {
       title: "List managed processes",
-      description: "List running and recently completed process sessions.",
-      inputSchema: z.object({}),
+      description:
+        "List running and recently completed process sessions. Filters only affect the returned list and never mutate or terminate sessions.",
+      inputSchema: z.object({
+        runningOnly: z
+          .boolean()
+          .default(false)
+          .describe("Return only currently running process sessions."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .describe("Maximum number of matching sessions returned, preserving creation order."),
+        since: z
+          .string()
+          .optional()
+          .describe("Only return sessions started at or after this ISO-8601 timestamp."),
+      }),
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async () => runTool(() => ({ processes: processManager.list() })),
+    async ({ runningOnly, limit, since }) =>
+      runTool(() => {
+        let sinceMs: number | undefined;
+        if (since !== undefined) {
+          sinceMs = Date.parse(since);
+          if (!Number.isFinite(sinceMs)) {
+            throw new Error(`Invalid since timestamp: ${since}`);
+          }
+        }
+        return {
+          processes: processManager.list({ runningOnly, limit, since: sinceMs }),
+          stats: processManager.stats(),
+        };
+      }),
+  );
+
+  server.registerTool(
+    "forget_process",
+    {
+      title: "Forget completed process",
+      description:
+        "Remove one completed process session and its retained output. Running processes are rejected and are never terminated implicitly.",
+      inputSchema: z.object({ sessionId: sessionIdSchema }),
+      annotations: TOOL_ANNOTATIONS.destructiveIdempotentClosed,
+      _meta: authMetadata,
+    },
+    async ({ sessionId }) =>
+      runTool(() => ({ sessionId, forgotten: processManager.forget(sessionId) })),
+  );
+
+  server.registerTool(
+    "clear_completed_processes",
+    {
+      title: "Clear completed processes",
+      description:
+        "Remove completed retained process sessions without affecting running processes.",
+      inputSchema: z.object({
+        olderThanMs: z
+          .number()
+          .int()
+          .min(0)
+          .default(0)
+          .describe(
+            "Only clear sessions completed at least this many milliseconds ago. Zero clears all completed sessions.",
+          ),
+      }),
+      annotations: TOOL_ANNOTATIONS.destructiveIdempotentClosed,
+      _meta: authMetadata,
+    },
+    async ({ olderThanMs }) =>
+      runTool(() => ({ cleared: processManager.clearCompleted(olderThanMs) })),
   );
 }

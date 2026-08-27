@@ -14,9 +14,11 @@ import { executableAvailable, isPosixModeMeaningful, normalizeTextNewlines, test
 const ALL_TOOLS = [
   "apply_patch",
   "chmod_path",
+  "clear_completed_processes",
   "copy_path",
   "download_file",
   "exec_command",
+  "forget_process",
   "hash_file",
   "list_directory",
   "list_processes",
@@ -40,9 +42,11 @@ type ToolResult = Awaited<ReturnType<Client["callTool"]>>;
 const EXPECTED_ANNOTATIONS = {
   apply_patch: [false, true, false, false],
   chmod_path: [false, true, true, false],
+  clear_completed_processes: [false, true, true, false],
   copy_path: [false, true, true, false],
   download_file: [true, false, true, false],
   exec_command: [false, true, false, true],
+  forget_process: [false, true, true, false],
   hash_file: [true, false, true, false],
   list_directory: [true, false, true, false],
   list_processes: [true, false, true, false],
@@ -363,28 +367,48 @@ describe.sequential("all registered MCP tools", () => {
       yieldTimeMs: 0,
     });
     const longSession = String(longRunning.sessionId);
-    const processes = await callOk("list_processes");
+    const processes = await callOk("list_processes", {
+      runningOnly: true,
+      limit: 10,
+      since: new Date(0).toISOString(),
+    });
     expect(processes.processes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ sessionId: longSession, running: true }),
       ]),
     );
-    await callOk("terminate_process", {
+    expect((processes.processes as unknown[]).every((process_) =>
+      (process_ as { running?: boolean }).running === true,
+    )).toBe(true);
+    let terminated = await callOk("terminate_process", {
       sessionId: longSession,
       signal: "SIGTERM",
-      graceMs: 1000,
+      graceMs: 100,
+      outputMode: "metadata",
     });
-    const terminated = await callOk("read_process", {
-      sessionId: longSession,
-      waitMs: 2000,
-    });
+    const terminateDeadline = Date.now() + 15_000;
+    while (terminated.completed !== true && Date.now() < terminateDeadline) {
+      terminated = await callOk("read_process", {
+        sessionId: longSession,
+        afterSeq: terminated.nextSeq,
+        waitMs: 3000,
+        outputMode: "metadata",
+      });
+    }
     expect(terminated).toMatchObject({ running: false, completed: true });
     if (process.platform === "win32") {
       expect(terminated.signal).toBeNull();
-      expect(Number(terminated.exitCode)).not.toBe(0);
+      expect(terminated.exitCode).not.toBe(0);
     } else {
       expect(terminated.signal).toBe("SIGTERM");
     }
+    expect(await callOk("forget_process", { sessionId: longSession })).toMatchObject({
+      sessionId: longSession,
+      forgotten: true,
+    });
+    expect(await callOk("clear_completed_processes", { olderThanMs: 0 })).toEqual(
+      expect.objectContaining({ cleared: expect.any(Number) }),
+    );
   }, 30_000);
 
   it("handles text, metadata, listings, permissions, and unified patches", async () => {

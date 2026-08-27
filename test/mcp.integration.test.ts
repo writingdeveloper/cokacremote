@@ -301,6 +301,14 @@ describe("remote development MCP server", () => {
       transportMode: "stateless-json",
       activeMcpSessions: 0,
       activeMcpRequests: 0,
+      managedProcesses: expect.any(Number),
+      processes: {
+        running: expect.any(Number),
+        completedRetained: expect.any(Number),
+        capacity: expect.any(Number),
+        retainedOutputBytes: expect.any(Number),
+        droppedOutputBytes: expect.any(Number),
+      },
     });
   });
 });

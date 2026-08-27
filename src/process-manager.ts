@@ -175,6 +175,20 @@ export interface ProcessReadResult {
   droppedOutputBytes: number;
 }
 
+export interface ProcessListOptions {
+  runningOnly?: boolean | undefined;
+  limit?: number | undefined;
+  since?: number | undefined;
+}
+
+export interface ProcessManagerStats {
+  running: number;
+  completedRetained: number;
+  capacity: number;
+  retainedOutputBytes: number;
+  droppedOutputBytes: number;
+}
+
 export interface ProcessManagerOptions {
   maxRetainedOutputBytes: number;
   processRetentionMs: number;
@@ -430,7 +444,7 @@ export class ProcessManager {
     return this.read(sessionId, { outputMode });
   }
 
-  list(): Array<{
+  list(options: ProcessListOptions = {}): Array<{
     sessionId: string;
     pid: number | undefined;
     command: string;
@@ -440,7 +454,18 @@ export class ProcessManager {
     endedAt: string | undefined;
     exitCode: number | null | undefined;
   }> {
-    return [...this.#processes.values()].map((managed) => ({
+    let managedProcesses = [...this.#processes.values()];
+    if (options.runningOnly) {
+      managedProcesses = managedProcesses.filter((managed) => this.#isRunning(managed));
+    }
+    if (options.since !== undefined) {
+      managedProcesses = managedProcesses.filter((managed) => managed.startedAt >= options.since!);
+    }
+    if (options.limit !== undefined) {
+      const limit = Math.max(0, Math.floor(options.limit));
+      managedProcesses = managedProcesses.slice(0, limit);
+    }
+    return managedProcesses.map((managed) => ({
       sessionId: managed.sessionId,
       pid: managed.child.pid,
       command: managed.command,
@@ -453,6 +478,59 @@ export class ProcessManager {
           : new Date(managed.endedAt).toISOString(),
       exitCode: managed.exitCode,
     }));
+  }
+
+  forget(sessionId: string): boolean {
+    const managed = this.#processes.get(sessionId);
+    if (!managed) {
+      return false;
+    }
+    if (this.#isRunning(managed)) {
+      throw new Error(
+        `Cannot forget running process ${sessionId}; terminate it first`,
+      );
+    }
+    this.#forget(managed);
+    return true;
+  }
+
+  clearCompleted(olderThanMs = 0): number {
+    const threshold = Math.max(0, olderThanMs);
+    const cutoff = Date.now() - threshold;
+    let cleared = 0;
+    for (const managed of [...this.#processes.values()]) {
+      if (managed.endedAt !== undefined && managed.endedAt <= cutoff) {
+        this.#forget(managed);
+        cleared += 1;
+      }
+    }
+    return cleared;
+  }
+
+  stats(): ProcessManagerStats {
+    let running = 0;
+    let completedRetained = 0;
+    let retainedOutputBytes = 0;
+    let droppedOutputBytes = 0;
+    for (const managed of this.#processes.values()) {
+      if (this.#isRunning(managed)) {
+        running += 1;
+      } else {
+        completedRetained += 1;
+      }
+      retainedOutputBytes +=
+        managed.retainedBytes +
+        managed.pendingOutput.stdout.length +
+        managed.pendingOutput.stderr.length;
+      droppedOutputBytes += managed.droppedOutputBytes;
+    }
+    return {
+      running,
+      completedRetained,
+      capacity: this.#options.maxProcesses,
+      retainedOutputBytes,
+      droppedOutputBytes,
+    };
   }
 
   prune(): void {
