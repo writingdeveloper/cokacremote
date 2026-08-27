@@ -507,3 +507,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\uninstall.p
 ```
 
 Use a unique `-TaskPrefix` for canaries or tests. Deployment-specific OAuth keys, Cloudflare credentials, domains, WakaTime paths, and other secrets belong in private environment/config files and should not be committed.
+
+### MCP 2026 cache and task compatibility
+
+With `@modelcontextprotocol/server` 2.0.0, cokacremote serves MCP 2026-07-28 `server/discover` and `tools/list` results with the SDK-supported five-minute private cache hint (`ttlMs: 300000`, `cacheScope: private`). Integration tests assert those wire fields so future SDK upgrades cannot silently drop the browser-facing cache behavior.
+
+The same SDK release exports the older task wire types (`Task`, `GetTaskRequest`, `ListTasksRequest`, and related types), but its public declarations explicitly mark them as deprecated 2025-11-25 vocabulary **with no SDK runtime** and exclude `tasks/get`, `tasks/result`, `tasks/list`, and `tasks/cancel` from the typed request-handler surface. cokacremote therefore does not invent custom task methods or advertise a task capability that the installed SDK cannot serve correctly. Long-running work continues to use the existing `ProcessManager` session IDs through `exec_command`/`run_script`, `read_process`, and `terminate_process`. Revisit a native task adapter only when the installed MCP SDK exposes a supported task runtime.
