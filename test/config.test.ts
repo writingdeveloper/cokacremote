@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,6 +8,28 @@ import { loadConfig } from "../src/config.js";
 const testCwd = path.join(os.tmpdir(), "cokacremote-config-test");
 
 describe("loadConfig", () => {
+  it("loads the documented ChatGPT Web runtime profile limits", () => {
+    const profilePath = path.resolve("deploy/profiles/chatgpt-web.env.example");
+    const env = Object.fromEntries(
+      readFileSync(profilePath, "utf8")
+        .split(String.fromCharCode(10))
+        .map((line) => line.replace(String.fromCharCode(13), "").trim())
+        .filter((line) => line && !line.startsWith("#"))
+        .map((line) => {
+          const separator = line.indexOf("=");
+          return [line.slice(0, separator), line.slice(separator + 1)];
+        }),
+    );
+    const config = loadConfig({ MCP_AUTH_TOKEN: "secret", ...env }, testCwd);
+
+    expect(config).toMatchObject({
+      maxOutputBytes: 131072,
+      maxRetainedProcessOutputBytes: 1048576,
+      processRetentionMs: 900000,
+      maxProcesses: 32,
+      maxFileChunkBytes: 262144,
+    });
+  });
   it("requires authentication unless explicitly disabled", () => {
     expect(() => loadConfig({}, testCwd)).toThrow("MCP_AUTH_TOKEN is required");
     expect(loadConfig({ MCP_ALLOW_NO_AUTH: "true" }, testCwd).allowNoAuth).toBe(true);

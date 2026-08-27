@@ -144,6 +144,24 @@ These annotations are advisory client metadata, not access control. They do not 
 - MCP transport sessions and command process `sessionId` values are unrelated. A process `sessionId` returned by `exec_command` can be reused by later HTTP requests to `write_stdin`, `read_process`, and `terminate_process`.
 - Running and retained process state is stored in service memory and is lost when the service restarts.
 
+## ChatGPT Web runtime profile
+
+For heavy browser-based MCP use, start from your normal deployment environment and overlay the values in `deploy/profiles/chatgpt-web.env.example`:
+
+```dotenv
+MCP_MAX_OUTPUT_BYTES=131072
+MCP_MAX_RETAINED_PROCESS_OUTPUT_BYTES=1048576
+MCP_PROCESS_RETENTION_MS=900000
+MCP_MAX_PROCESSES=32
+MCP_MAX_FILE_CHUNK_BYTES=262144
+```
+
+These are deployment recommendations, not global defaults. They keep individual process responses at 128 KiB, retain up to 1 MiB per process for later polling, expire completed sessions after 15 minutes, cap retained process sessions at 32, and use 256 KiB file-transfer pages. This reduces browser memory and transport amplification without discarding output that is still inside the retained-output budget.
+
+Process tools default to `outputMode=compact`, which returns one canonical interleaved `output` string. Use `outputMode=streams` only when separate `stdout` and `stderr` are required, or `outputMode=metadata` when only lifecycle/counter state is needed.
+
+Process output is cursor-paginated: pass the previous `nextSeq` as `afterSeq` until `hasMore=false`. File reads and downloads similarly continue from `nextOffset`. Smaller pages are safer for browser MCP clients because they bound each JSON response while preserving resumability; lowering a page size does not itself discard retained process output.
+
 ## Requirements
 
 - Node.js 22 or later and npm
