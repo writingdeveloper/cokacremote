@@ -131,6 +131,18 @@ describe("loadConfig", () => {
     });
   });
 
+  it("enables CIMD by default for OAuth and supports an emergency disable switch", () => {
+    const base = {
+      MCP_AUTH_TOKEN: "secret",
+      MCP_OAUTH_ENABLED: "true",
+      MCP_PUBLIC_URL: "https://mcp.example.com",
+    };
+    expect(loadConfig(base, testCwd).oauthCimdEnabled).toBe(true);
+    expect(
+      loadConfig({ ...base, MCP_OAUTH_CIMD_ENABLED: "false" }, testCwd).oauthCimdEnabled,
+    ).toBe(false);
+  });
+
   it("supports OAuth-only authentication with a separate approval key", () => {
     const config = loadConfig(
       {

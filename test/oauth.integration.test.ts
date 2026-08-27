@@ -324,4 +324,122 @@ describe("OAuth 2.1 MCP authorization", () => {
     expect(persisted).not.toContain(tokens.access_token);
     expect(persisted).not.toContain(tokens.refresh_token);
   });
+  it("supports CIMD after user approval while retaining DCR fallback", async () => {
+    const cimdDirectory = await mkdtemp(path.join(os.tmpdir(), "remote-dev-mcp-cimd-test-"));
+    const port = await reservePort();
+    const cimdBaseUrl = `http://127.0.0.1:${port}`;
+    const cimdResourceUrl = `${cimdBaseUrl}/mcp`;
+    const clientId = "https://client.example/oauth/client.json";
+    const redirectUri = "https://chatgpt.com/connector/oauth/cimd-test-callback";
+    let resolveCount = 0;
+    const cimdResolver = {
+      resolve: async (requestedClientId: string) => {
+        resolveCount += 1;
+        expect(requestedClientId).toBe(clientId);
+        return {
+          client_id: clientId,
+          client_name: "CIMD integration client",
+          redirect_uris: [redirectUri],
+          token_endpoint_auth_method: "none",
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+          scope: "mcp:tools",
+        };
+      },
+    };
+    const cimdConfig = loadConfig(
+      {
+        MCP_OAUTH_ENABLED: "true",
+        MCP_OAUTH_APPROVAL_KEY: "cimd-approval-key",
+        MCP_PUBLIC_URL: cimdBaseUrl,
+        MCP_OAUTH_STATE_FILE: path.join(cimdDirectory, "oauth-state.json"),
+        MCP_HOST: "127.0.0.1",
+        MCP_PORT: String(port),
+        MCP_DEFAULT_CWD: cimdDirectory,
+      },
+      cimdDirectory,
+    );
+    const cimdRunning = await startHttpServer(cimdConfig, createServices(cimdConfig), {
+      cimdResolver,
+    });
+
+    try {
+      const metadataResponse = await fetch(
+        `${cimdBaseUrl}/.well-known/oauth-authorization-server`,
+      );
+      expect(metadataResponse.status).toBe(200);
+      expect(await metadataResponse.json()).toMatchObject({
+        client_id_metadata_document_supported: true,
+        registration_endpoint: `${cimdBaseUrl}/register`,
+      });
+
+      const codeVerifier = randomBytes(48).toString("base64url");
+      const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+      const authorizationValues = {
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+        scope: "mcp:tools",
+        state: "cimd-state",
+        resource: cimdResourceUrl,
+      };
+
+      const approvalPage = await fetch(
+        `${cimdBaseUrl}/authorize?${form(authorizationValues)}`,
+        { redirect: "manual" },
+      );
+      expect(approvalPage.status).toBe(200);
+      expect(resolveCount).toBe(0);
+      expect(await approvalPage.text()).toContain("client.example");
+
+      const rejected = await fetch(`${cimdBaseUrl}/authorize`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form({ ...authorizationValues, access_key: "wrong-key" }),
+        redirect: "manual",
+      });
+      expect(rejected.status).toBe(401);
+      expect(resolveCount).toBe(0);
+
+      const approved = await fetch(`${cimdBaseUrl}/authorize`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form({ ...authorizationValues, access_key: "cimd-approval-key" }),
+        redirect: "manual",
+      });
+      expect(approved.status).toBe(303);
+      expect(resolveCount).toBe(1);
+      const callback = new URL(approved.headers.get("location")!);
+      expect(callback.origin + callback.pathname).toBe(redirectUri);
+      expect(callback.searchParams.get("state")).toBe("cimd-state");
+      const code = callback.searchParams.get("code");
+      expect(code).toBeTruthy();
+
+      const tokenResponse = await fetch(`${cimdBaseUrl}/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form({
+          grant_type: "authorization_code",
+          client_id: clientId,
+          code: code!,
+          code_verifier: codeVerifier,
+          redirect_uri: redirectUri,
+          resource: cimdResourceUrl,
+        }),
+      });
+      expect(tokenResponse.status).toBe(200);
+      expect(await tokenResponse.json()).toMatchObject({
+        token_type: "Bearer",
+        scope: "mcp:tools",
+        access_token: expect.any(String),
+      });
+      expect(resolveCount).toBe(1);
+    } finally {
+      await cimdRunning.close();
+      await rm(cimdDirectory, { recursive: true, force: true });
+    }
+  });
+
 });

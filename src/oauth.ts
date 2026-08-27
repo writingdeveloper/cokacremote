@@ -1,12 +1,14 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { specTypeSchemas } from "@modelcontextprotocol/server";
 import type { AuthInfo, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from "@modelcontextprotocol/server";
-import { InvalidClientMetadataError, InvalidGrantError, InvalidScopeError, InvalidTargetError, UnauthorizedClientError } from "@modelcontextprotocol/server-legacy/auth";
+import { InvalidClientMetadataError, InvalidGrantError, InvalidScopeError, InvalidTargetError, UnauthorizedClientError, redirectUriMatches } from "@modelcontextprotocol/server-legacy/auth";
 import type { OAuthRegisteredClientsStore, AuthorizationParams, OAuthServerProvider } from "@modelcontextprotocol/server-legacy/auth";
 import type { Request, Response } from "express";
 
 import { tokensEqual } from "./auth.js";
+import type { CimdClientResolverLike } from "./cimd.js";
 import type { AppConfig } from "./config.js";
 import { OAUTH_SCOPES } from "./tool-metadata.js";
 
@@ -246,6 +248,17 @@ class PersistentOAuthStore implements OAuthRegisteredClientsStore {
       return undefined;
     }
     return client;
+  }
+
+  async registerExternalClient(client: OAuthClientInformationFull): Promise<OAuthClientInformationFull> {
+    const problem = clientMetadataProblem(client);
+    if (problem) {
+      throw new InvalidClientMetadataError(problem);
+    }
+    return this.mutate(() => {
+      this.state.clients[client.client_id] = client;
+      return client;
+    });
   }
 
   async registerClient(
@@ -520,6 +533,66 @@ export class RemoteDevOAuthProvider implements OAuthServerProvider {
         this.authorizationCodes.delete(code);
       }
     }
+  }
+
+  async authorizeCimd(
+    clientId: string,
+    params: AuthorizationParams,
+    response: Response,
+    resolver: CimdClientResolverLike,
+  ): Promise<void> {
+    const provisionalClient: OAuthClientInformationFull = {
+      client_id: clientId,
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      client_name: new URL(clientId).hostname,
+      redirect_uris: [params.redirectUri],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code"],
+      response_types: ["code"],
+    };
+    const request = response.req as Request;
+    const accessKey =
+      request.method === "POST" && typeof request.body?.access_key === "string"
+        ? request.body.access_key
+        : undefined;
+
+    if (!accessKey || !tokensEqual(accessKey, this.config.oauthApprovalKey!)) {
+      await this.authorize(provisionalClient, params, response);
+      return;
+    }
+
+    const rawMetadata = await resolver.resolve(clientId);
+    if (rawMetadata && typeof rawMetadata === "object" && !Array.isArray(rawMetadata)) {
+      const declaredClientId = (rawMetadata as { client_id?: unknown }).client_id;
+      if (declaredClientId !== undefined && declaredClientId !== clientId) {
+        throw new InvalidClientMetadataError("CIMD client_id must match the metadata document URL");
+      }
+    }
+    const validated = await specTypeSchemas.OAuthClientMetadata["~standard"].validate(rawMetadata);
+    if (validated.issues !== undefined) {
+      throw new InvalidClientMetadataError("CIMD metadata does not match the OAuth client metadata schema");
+    }
+    const metadata = validated.value;
+    const client: OAuthClientInformationFull = {
+      ...metadata,
+      client_id: clientId,
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      token_endpoint_auth_method: metadata.token_endpoint_auth_method ?? "none",
+      grant_types: metadata.grant_types ?? ["authorization_code"],
+      response_types: metadata.response_types ?? ["code"],
+    };
+    if (client.token_endpoint_auth_method !== "none") {
+      throw new InvalidClientMetadataError("CIMD URL clients must use token_endpoint_auth_method=none");
+    }
+    const problem = clientMetadataProblem(client);
+    if (problem) {
+      throw new InvalidClientMetadataError(problem);
+    }
+    if (!client.redirect_uris.some((registered) => redirectUriMatches(params.redirectUri, registered))) {
+      throw new InvalidClientMetadataError("CIMD metadata does not register the requested redirect_uri");
+    }
+    const registered = await this.clientsStore.registerExternalClient(client);
+    await this.authorize(registered, params, response);
   }
 
   async authorize(

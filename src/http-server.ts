@@ -10,12 +10,17 @@ import { createBearerAuth, createHostValidation } from "./auth.js";
 import { BusyError, ConcurrencyGate } from "./concurrency-gate.js";
 import type { AppConfig } from "./config.js";
 import { errorMessage } from "./errors.js";
+import { CimdClientResolver, isCimdClientId, type CimdClientResolverLike } from "./cimd.js";
 import { createMcpServer, type McpServices } from "./mcp-server.js";
 import { OAUTH_SCOPES, RemoteDevOAuthProvider } from "./oauth.js";
 
 export interface RunningHttpServer {
   httpServer: HttpServer;
   close: () => Promise<void>;
+}
+
+export interface HttpServerOptions {
+  cimdResolver?: CimdClientResolverLike;
 }
 
 function rpcError(response: Response, status: number, message: string): void {
@@ -49,6 +54,7 @@ function rpcToolName(body: unknown): string | undefined {
 export async function startHttpServer(
   config: AppConfig,
   services: McpServices,
+  options: HttpServerOptions = {},
 ): Promise<RunningHttpServer> {
   const app = express();
   app.disable("x-powered-by");
@@ -117,6 +123,7 @@ export async function startHttpServer(
     const oauthMetadata = {
       ...createOAuthMetadata(oauthRouterOptions),
       revocation_endpoint_auth_methods_supported: ["client_secret_post", "none"],
+      ...(config.oauthCimdEnabled ? { client_id_metadata_document_supported: true } : {}),
     };
     const issuerPath = oauthProvider.issuerUrl.pathname.replace(/\/$/, "");
     const oauthMetadataPath = `/.well-known/oauth-authorization-server${issuerPath}`;
@@ -130,6 +137,79 @@ export async function startHttpServer(
       }
       next();
     });
+    if (config.oauthCimdEnabled) {
+      const cimdResolver = options.cimdResolver ?? new CimdClientResolver();
+      const cimdForm = express.urlencoded({ extended: false });
+      app.all("/authorize", cimdForm, (request, response, next) => {
+        const values = request.method === "POST" ? request.body : request.query;
+        const clientId = typeof values?.client_id === "string" ? values.client_id : undefined;
+        if (!clientId || !isCimdClientId(clientId)) {
+          next();
+          return;
+        }
+        void (async () => {
+          const redirectUri =
+            typeof values.redirect_uri === "string" ? values.redirect_uri : undefined;
+          const responseType =
+            typeof values.response_type === "string" ? values.response_type : undefined;
+          const codeChallenge =
+            typeof values.code_challenge === "string" ? values.code_challenge : undefined;
+          const codeChallengeMethod =
+            typeof values.code_challenge_method === "string"
+              ? values.code_challenge_method
+              : undefined;
+          const scope = typeof values.scope === "string" ? values.scope : undefined;
+          const state = typeof values.state === "string" ? values.state : undefined;
+          const resource = typeof values.resource === "string" ? values.resource : undefined;
+          if (
+            !redirectUri ||
+            !URL.canParse(redirectUri) ||
+            responseType !== "code" ||
+            !codeChallenge ||
+            codeChallengeMethod !== "S256"
+          ) {
+            response.status(400).json({
+              error: "invalid_request",
+              error_description: "Invalid CIMD authorization request",
+            });
+            return;
+          }
+          let resourceUrl: URL | undefined;
+          if (resource !== undefined) {
+            if (!URL.canParse(resource)) {
+              response.status(400).json({
+                error: "invalid_request",
+                error_description: "Invalid resource URL",
+              });
+              return;
+            }
+            resourceUrl = new URL(resource);
+          }
+          try {
+            await oauthProvider.authorizeCimd(
+              clientId,
+              {
+                state,
+                scopes: scope ? scope.split(" ").filter(Boolean) : [],
+                redirectUri,
+                codeChallenge,
+                resource: resourceUrl,
+                issuer: oauthProvider.issuerUrl.href,
+              },
+              response,
+              cimdResolver,
+            );
+          } catch (error) {
+            if (!response.headersSent) {
+              response.status(400).json({
+                error: "invalid_client_metadata",
+                error_description: errorMessage(error),
+              });
+            }
+          }
+        })();
+      });
+    }
     app.use(mcpAuthRouter(oauthRouterOptions));
   }
   const authenticate = createBearerAuth(config, oauthProvider);

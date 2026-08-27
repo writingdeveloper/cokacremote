@@ -206,6 +206,7 @@ You can also enable the built-in OAuth 2.1 Authorization Server for compatible O
 
 ```dotenv
 MCP_OAUTH_ENABLED=true
+MCP_OAUTH_CIMD_ENABLED=true
 MCP_OAUTH_APPROVAL_KEY=<separate-value-generated-with-openssl-rand-hex-32>
 MCP_PUBLIC_URL=https://mcp.example.com
 MCP_OAUTH_ISSUER=https://mcp.example.com
@@ -217,12 +218,13 @@ When enabled, the server provides:
 
 - RFC 9728 Protected Resource Metadata
 - RFC 8414 Authorization Server Metadata
+- SEP-991 Client ID Metadata Documents (CIMD), with DCR retained as fallback
 - Dynamic Client Registration (DCR)
 - Authorization Code + PKCE (S256)
 - `resource` audience validation
 - Access tokens, replay-detecting refresh token rotation, and grant-level token revocation
 
-OAuth uses a single `mcp:tools` scope. Enter the `MCP_OAUTH_APPROVAL_KEY` value on the approval page shown when authorizing an OAuth client connection. For OAuth-only deployments, it is recommended to leave `MCP_AUTH_TOKEN` empty so there is no permanent static Bearer bypass path. For backward compatibility, `MCP_AUTH_TOKEN` is used as the approval key when no dedicated approval key is configured, but keeping the two values separate is safer. Treat both values like root credentials. Registered clients, client secrets, and token hashes are stored in `MCP_OAUTH_STATE_FILE` with mode `600`.
+OAuth uses a single `mcp:tools` scope. When CIMD is enabled, the authorization metadata advertises SEP-991 support while `/register` remains available for DCR clients. URL-based client metadata is fetched only after the local approval key is accepted, over HTTPS with DNS pinning, private/special-address rejection, no redirects, a 5-second timeout, and a 64 KiB response limit. Set `MCP_OAUTH_CIMD_ENABLED=false` as an emergency compatibility switch. Existing registered DCR clients and tokens remain valid; changing this setting does not require reinstalling the ChatGPT connector. Enter the `MCP_OAUTH_APPROVAL_KEY` value on the approval page shown when authorizing an OAuth client connection. For OAuth-only deployments, it is recommended to leave `MCP_AUTH_TOKEN` empty so there is no permanent static Bearer bypass path. For backward compatibility, `MCP_AUTH_TOKEN` is used as the approval key when no dedicated approval key is configured, but keeping the two values separate is safer. Treat both values like root credentials. Registered clients, client secrets, and token hashes are stored in `MCP_OAUTH_STATE_FILE` with mode `600`.
 
 OAuth-related HTTP routes:
 
@@ -425,6 +427,7 @@ MCP_WAKATIME_TRACK_SHELL_CHANGES=true
 | `MCP_AUTH_TOKEN` | none | Optional static Bearer token |
 | `MCP_ALLOW_NO_AUTH` | `false` | Allow startup without authentication |
 | `MCP_OAUTH_ENABLED` | `false` | Enable the built-in OAuth 2.1/DCR authorization server |
+| `MCP_OAUTH_CIMD_ENABLED` | `true` when OAuth is enabled | Advertise and accept SEP-991 URL-based client IDs while retaining DCR fallback |
 | `MCP_OAUTH_APPROVAL_KEY` | `MCP_AUTH_TOKEN` | Dedicated key for the OAuth connection approval page |
 | `MCP_OAUTH_ISSUER` | `MCP_PUBLIC_URL` | OAuth issuer URL |
 | `MCP_OAUTH_RESOURCE` | `<MCP_PUBLIC_URL><MCP_ENDPOINT>` | MCP resource audience |

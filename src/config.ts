@@ -10,6 +10,7 @@ export interface AppConfig {
   authToken: string | undefined;
   allowNoAuth: boolean;
   oauthEnabled: boolean;
+  oauthCimdEnabled: boolean;
   oauthApprovalKey: string | undefined;
   oauthIssuerUrl: string | undefined;
   oauthResourceUrl: string | undefined;
@@ -161,6 +162,7 @@ export function loadConfig(
     authToken,
     allowNoAuth,
     oauthEnabled,
+    oauthCimdEnabled: oauthEnabled && parseBoolean(env.MCP_OAUTH_CIMD_ENABLED, true),
     oauthApprovalKey,
     oauthIssuerUrl,
     oauthResourceUrl,
