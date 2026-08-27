@@ -89,7 +89,7 @@ describe("ProcessManager", () => {
       timeoutMs: 50,
     });
 
-    await manager.waitForExit(sessionId, 3000);
+    await manager.waitForExit(sessionId, process.platform === "win32" ? 8000 : 3000);
     const result = await manager.read(sessionId);
 
     expect(result.running).toBe(false);

@@ -22,8 +22,12 @@ function failedChildPids(message: string, rootPid: number): number[] {
   return [...pids];
 }
 
-async function taskkill(pid: number, retryFailedChildren: boolean): Promise<void> {
-  const args = ["/PID", String(pid), "/T", "/F"];
+async function taskkill(
+  pid: number,
+  force: boolean,
+  retryFailedChildren: boolean,
+): Promise<void> {
+  const args = ["/PID", String(pid), "/T", ...(force ? ["/F"] : [])];
   const { error, stdout, stderr } = await new Promise<{
     error: (Error & { code?: string | number | null }) | null;
     stdout: string;
@@ -56,8 +60,15 @@ async function taskkill(pid: number, retryFailedChildren: boolean): Promise<void
   if (terminatedPid(stdout, pid)) {
     if (retryFailedChildren) {
       const failed = failedChildPids(stderr, pid);
-      await Promise.allSettled(failed.map((childPid) => taskkill(childPid, false)));
+      await Promise.allSettled(failed.map((childPid) => taskkill(childPid, true, false)));
     }
+    return;
+  }
+
+  // A graceful Windows tree termination can legitimately fail for console
+  // processes that require /F. The caller observes whether the process remains
+  // alive and escalates to SIGKILL after its configured grace period.
+  if (!force) {
     return;
   }
 
@@ -73,7 +84,8 @@ export function signalProcessTree(pid: number, signal: NodeJS.Signals): Promise<
     return Promise.resolve();
   }
 
-  // Windows has no POSIX process-group signals. taskkill /T /F is intentionally
-  // asynchronous so process termination never blocks the MCP server event loop.
-  return taskkill(pid, true);
+  // Windows has no POSIX process-group signals. SIGINT/SIGTERM make a best-effort
+  // tree termination without /F; SIGKILL is the forced escalation. All taskkill
+  // work stays asynchronous so the MCP server event loop is never blocked.
+  return taskkill(pid, signal === "SIGKILL", true);
 }

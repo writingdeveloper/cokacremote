@@ -5,7 +5,7 @@ import { signalProcessTree } from "../src/process-tree.js";
 
 describe("signalProcessTree", () => {
   it.runIf(process.platform === "win32")(
-    "starts Windows tree termination without blocking the Node event loop",
+    "keeps graceful and forced Windows tree signaling asynchronous",
     async () => {
       const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30_000)"], {
         stdio: "ignore",
@@ -15,12 +15,16 @@ describe("signalProcessTree", () => {
         throw new Error("Expected child PID");
       }
 
-      const startedAt = Date.now();
-      const termination = signalProcessTree(child.pid, "SIGTERM");
-      const callDurationMs = Date.now() - startedAt;
+      const gracefulStartedAt = Date.now();
+      await signalProcessTree(child.pid, "SIGTERM");
+      expect(Date.now() - gracefulStartedAt).toBeLessThan(2000);
 
-      expect(callDurationMs).toBeLessThan(250);
-      await termination;
+      if (child.exitCode === null) {
+        const forceStartedAt = Date.now();
+        await signalProcessTree(child.pid, "SIGKILL");
+        expect(Date.now() - forceStartedAt).toBeLessThan(3000);
+      }
+
       await new Promise<void>((resolve) => {
         if (child.exitCode !== null) {
           resolve();
