@@ -1,5 +1,4 @@
-import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-
+import type { ToolAnnotations } from "@modelcontextprotocol/server";
 import type { AppConfig } from "./config.js";
 
 export const OAUTH_SCOPES = ["mcp:tools"] as const;

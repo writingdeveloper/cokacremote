@@ -1,25 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-
-import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
-import {
-  InvalidClientMetadataError,
-  InvalidGrantError,
-  InvalidScopeError,
-  InvalidTargetError,
-  UnauthorizedClientError,
-} from "@modelcontextprotocol/sdk/server/auth/errors.js";
-import type {
-  AuthorizationParams,
-  OAuthServerProvider,
-} from "@modelcontextprotocol/sdk/server/auth/provider.js";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
-import type {
-  OAuthClientInformationFull,
-  OAuthTokenRevocationRequest,
-  OAuthTokens,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { AuthInfo, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from "@modelcontextprotocol/server";
+import { InvalidClientMetadataError, InvalidGrantError, InvalidScopeError, InvalidTargetError, UnauthorizedClientError } from "@modelcontextprotocol/server-legacy/auth";
+import type { OAuthRegisteredClientsStore, AuthorizationParams, OAuthServerProvider } from "@modelcontextprotocol/server-legacy/auth";
 import type { Request, Response } from "express";
 
 import { tokensEqual } from "./auth.js";

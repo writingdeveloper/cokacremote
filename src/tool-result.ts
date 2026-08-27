@@ -1,5 +1,4 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { errorMessage } from "./errors.js";
 
 export function successResult(data: Record<string, unknown>): CallToolResult {

@@ -2,9 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { loadConfig, type AppConfig } from "../src/config.js";
@@ -84,6 +82,44 @@ describe("remote development MCP server", () => {
       body: "{",
     });
     expect(authenticated.status).toBe(400);
+  });
+
+  it("serves MCP 2026-07-28 discovery to authenticated clients", async () => {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer integration-secret",
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "mcp-protocol-version": "2026-07-28",
+        "mcp-method": "server/discover",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "server/discover",
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              name: "modern-integration-test",
+              version: "1.0.0",
+            },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      result?: {
+        supportedVersions?: string[];
+        capabilities?: Record<string, unknown>;
+      };
+    };
+    expect(payload.result?.supportedVersions).toContain("2026-07-28");
+    expect(payload.result?.capabilities).toHaveProperty("tools");
   });
 
   it("lists tools and executes script and file workflows", async () => {

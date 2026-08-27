@@ -1,8 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 import type { RequestHandler } from "express";
-import type { OAuthTokenVerifier } from "@modelcontextprotocol/sdk/server/auth/provider.js";
-
+import type { OAuthTokenVerifier } from "@modelcontextprotocol/server-legacy/auth";
 import type { AppConfig } from "./config.js";
 
 export function tokensEqual(actual: string, expected: string): boolean {
