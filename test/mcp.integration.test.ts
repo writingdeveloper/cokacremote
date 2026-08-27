@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadConfig, type AppConfig } from "../src/config.js";
 import { startHttpServer, type RunningHttpServer } from "../src/http-server.js";
 import { createServices, type McpServices } from "../src/mcp-server.js";
+import { testBash } from "./helpers/cross-platform-command.js";
 
 interface JsonRpcResponse {
   result?: {
@@ -31,6 +32,7 @@ describe("remote development MCP server", () => {
         MCP_HOST: "127.0.0.1",
         MCP_DEFAULT_CWD: temporaryDirectory,
         MCP_MAX_FILE_CHUNK_BYTES: "65536",
+        MCP_DEFAULT_SHELL: testBash(),
       },
       temporaryDirectory,
     );

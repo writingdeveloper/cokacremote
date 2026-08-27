@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { FileService } from "../src/file-service.js";
+import { isPosixModeMeaningful, normalizeTextNewlines } from "./helpers/cross-platform-command.js";
 
 describe("FileService", () => {
   let temporaryDirectory: string;
@@ -123,7 +124,7 @@ describe("FileService", () => {
 
     expect(checked.applied).toBe(false);
     expect(applied.applied).toBe(true);
-    expect(await readFile(path.join(temporaryDirectory, "patch.txt"), "utf8")).toBe(
+    expect(normalizeTextNewlines(await readFile(path.join(temporaryDirectory, "patch.txt"), "utf8"))).toBe(
       "new\n",
     );
   });
@@ -241,9 +242,10 @@ describe("FileService", () => {
       true,
       0o644,
     );
-    expect((await stat(path.join(temporaryDirectory, "mode.txt"))).mode & 0o777).toBe(
-      0o644,
-    );
+    expect(await readFile(path.join(temporaryDirectory, "mode.txt"), "utf8")).toBe("second");
+    if (isPosixModeMeaningful()) {
+      expect((await stat(path.join(temporaryDirectory, "mode.txt"))).mode & 0o777).toBe(0o644);
+    }
   });
 
   it("rejects a non-forced directory copy when the destination exists", async () => {

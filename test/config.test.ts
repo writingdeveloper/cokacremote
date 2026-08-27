@@ -1,30 +1,36 @@
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { loadConfig } from "../src/config.js";
 
+const testCwd = path.join(os.tmpdir(), "cokacremote-config-test");
+
 describe("loadConfig", () => {
   it("requires authentication unless explicitly disabled", () => {
-    expect(() => loadConfig({}, "/tmp")).toThrow("MCP_AUTH_TOKEN is required");
-    expect(loadConfig({ MCP_ALLOW_NO_AUTH: "true" }, "/tmp").allowNoAuth).toBe(true);
+    expect(() => loadConfig({}, testCwd)).toThrow("MCP_AUTH_TOKEN is required");
+    expect(loadConfig({ MCP_ALLOW_NO_AUTH: "true" }, testCwd).allowNoAuth).toBe(true);
   });
 
   it("binds to loopback by default to avoid direct network exposure", () => {
-    expect(loadConfig({ MCP_AUTH_TOKEN: "secret" }, "/tmp").host).toBe("127.0.0.1");
+    expect(loadConfig({ MCP_AUTH_TOKEN: "secret" }, testCwd).host).toBe("127.0.0.1");
   });
+
   it("loads full-access host settings", () => {
+    const defaultCwd = path.join(testCwd, "workspace");
     const config = loadConfig(
       {
         MCP_AUTH_TOKEN: "secret",
         MCP_PORT: "4321",
-        MCP_DEFAULT_CWD: "/",
+        MCP_DEFAULT_CWD: defaultCwd,
         MCP_ALLOWED_HOSTS: "mcp.example.com,localhost",
       },
-      "/tmp",
+      testCwd,
     );
 
     expect(config).toMatchObject({
       port: 4321,
-      defaultCwd: "/",
+      defaultCwd: path.resolve(defaultCwd),
       trustProxyHops: 0,
       authToken: "secret",
       allowedHosts: ["mcp.example.com", "localhost"],
@@ -34,34 +40,35 @@ describe("loadConfig", () => {
   it("rejects partial integers and ports outside the valid range", () => {
     for (const value of ["3000oops", "3000.9", "70000"]) {
       expect(() =>
-        loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_PORT: value }, "/tmp"),
+        loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_PORT: value }, testCwd),
       ).toThrow("MCP_PORT must be an integer between 1 and 65535");
     }
     expect(
-      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_PORT: " 4321 " }, "/tmp").port,
+      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_PORT: " 4321 " }, testCwd).port,
     ).toBe(4321);
   });
 
   it("requires public HTTPS metadata when OAuth is enabled", () => {
     expect(() =>
-      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_OAUTH_ENABLED: "true" }, "/tmp"),
+      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_OAUTH_ENABLED: "true" }, testCwd),
     ).toThrow("MCP_OAUTH_ISSUER is required");
 
+    const stateFile = path.join(testCwd, "oauth-state.json");
     const config = loadConfig(
       {
         MCP_AUTH_TOKEN: "secret",
         MCP_OAUTH_ENABLED: "true",
         MCP_PUBLIC_URL: "https://mcp.example.com",
-        MCP_OAUTH_STATE_FILE: "/tmp/oauth-state.json",
+        MCP_OAUTH_STATE_FILE: stateFile,
       },
-      "/tmp",
+      testCwd,
     );
     expect(config).toMatchObject({
       oauthEnabled: true,
       oauthApprovalKey: "secret",
       oauthIssuerUrl: "https://mcp.example.com/",
       oauthResourceUrl: "https://mcp.example.com/mcp",
-      oauthStateFile: "/tmp/oauth-state.json",
+      oauthStateFile: path.resolve(stateFile),
     });
   });
 
@@ -73,7 +80,7 @@ describe("loadConfig", () => {
         MCP_PUBLIC_URL: "https://mcp.example.com",
         MCP_TRUST_PROXY_HOPS: "1",
       },
-      "/tmp",
+      testCwd,
     );
 
     expect(config).toMatchObject({
@@ -87,14 +94,14 @@ describe("loadConfig", () => {
           MCP_OAUTH_ENABLED: "true",
           MCP_PUBLIC_URL: "https://mcp.example.com",
         },
-        "/tmp",
+        testCwd,
       ),
     ).toThrow("MCP_OAUTH_APPROVAL_KEY");
   });
 
   it("rejects unsafe proxy trust and OAuth URL settings", () => {
     expect(() =>
-      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_TRUST_PROXY_HOPS: "17" }, "/tmp"),
+      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_TRUST_PROXY_HOPS: "17" }, testCwd),
     ).toThrow("MCP_TRUST_PROXY_HOPS must be an integer between 0 and 16");
     expect(() =>
       loadConfig(
@@ -104,7 +111,7 @@ describe("loadConfig", () => {
           MCP_OAUTH_ISSUER: "https://user:password@mcp.example.com",
           MCP_OAUTH_RESOURCE: "https://mcp.example.com/mcp",
         },
-        "/tmp",
+        testCwd,
       ),
     ).toThrow("must not contain user credentials");
   });

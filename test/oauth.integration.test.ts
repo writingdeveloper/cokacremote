@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadConfig, type AppConfig } from "../src/config.js";
 import { startHttpServer, type RunningHttpServer } from "../src/http-server.js";
 import { createServices } from "../src/mcp-server.js";
+import { isPosixModeMeaningful } from "./helpers/cross-platform-command.js";
 
 async function reservePort(): Promise<number> {
   const server = createServer();
@@ -315,8 +316,10 @@ describe("OAuth 2.1 MCP authorization", () => {
     });
     expect(revokedRequest.status).toBe(401);
 
-    expect((await stat(stateFile)).mode & 0o777).toBe(0o600);
-    expect((await stat(path.dirname(stateFile))).mode & 0o777).toBe(0o755);
+    if (isPosixModeMeaningful()) {
+      expect((await stat(stateFile)).mode & 0o777).toBe(0o600);
+      expect((await stat(path.dirname(stateFile))).mode & 0o777).toBe(0o755);
+    }
     const persisted = await readFile(stateFile, "utf8");
     expect(persisted).not.toContain(tokens.access_token);
     expect(persisted).not.toContain(tokens.refresh_token);

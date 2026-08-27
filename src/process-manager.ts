@@ -3,6 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { isAscii } from "node:buffer";
 
 import { errorMessage } from "./errors.js";
+import { signalProcessTree } from "./process-tree.js";
 
 const OUTPUT_CHUNK_BYTES = 16 * 1024;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
@@ -245,10 +246,10 @@ export class ProcessManager {
       managed.timeoutHandle = setTimeout(() => {
         managed.timedOut = true;
         managed.error ??= `Process exceeded timeout of ${timeoutMs} ms`;
-        this.#signal(managed, "SIGTERM");
+        void this.#signal(managed, "SIGTERM");
         const forceTimer = setTimeout(() => {
           if (this.#isRunning(managed)) {
-            this.#signal(managed, "SIGKILL");
+            void this.#signal(managed, "SIGKILL");
           }
         }, 5000);
         forceTimer.unref();
@@ -398,17 +399,22 @@ export class ProcessManager {
   ): Promise<ProcessReadResult> {
     const managed = this.#require(sessionId);
     if (this.#isRunning(managed)) {
-      this.#signal(managed, signal);
-      if (signal !== "SIGKILL" && graceMs > 0) {
-        const forceTimer = setTimeout(() => {
-          if (this.#isRunning(managed)) {
-            this.#signal(managed, "SIGKILL");
-          }
-        }, graceMs);
-        forceTimer.unref();
+      await this.#signal(managed, signal);
+
+      if (signal !== "SIGKILL" && graceMs > 0 && this.#isRunning(managed)) {
+        await this.waitForExit(sessionId, graceMs);
+      }
+      if (signal !== "SIGKILL" && this.#isRunning(managed)) {
+        await this.#signal(managed, "SIGKILL");
+      }
+      if (this.#isRunning(managed)) {
+        // Windows can report taskkill completion before Node receives the final
+        // close event for inherited stdio handles. Bound that drain period so
+        // terminate_process returns a stable final lifecycle state when possible.
+        await this.waitForExit(sessionId, 3000);
       }
     }
-    return this.read(sessionId, { waitMs: Math.min(graceMs, 1000) });
+    return this.read(sessionId);
   }
 
   list(): Array<{
@@ -449,15 +455,13 @@ export class ProcessManager {
     const running = [...this.#processes.values()].filter((managed) =>
       this.#isRunning(managed),
     );
-    for (const managed of running) {
-      this.#signal(managed, "SIGTERM");
-    }
+    await Promise.all(running.map((managed) => this.#signal(managed, "SIGTERM")));
     await new Promise((resolve) => setTimeout(resolve, running.length > 0 ? 500 : 0));
-    for (const managed of running) {
-      if (this.#isRunning(managed)) {
-        this.#signal(managed, "SIGKILL");
-      }
-    }
+    await Promise.all(
+      running
+        .filter((managed) => this.#isRunning(managed))
+        .map((managed) => this.#signal(managed, "SIGKILL")),
+    );
   }
 
   #makeCapacity(): void {
@@ -653,17 +657,13 @@ export class ProcessManager {
     return managed.endedAt === undefined;
   }
 
-  #signal(managed: ManagedProcess, signal: NodeJS.Signals): void {
+  async #signal(managed: ManagedProcess, signal: NodeJS.Signals): Promise<void> {
     const pid = managed.child.pid;
     if (pid === undefined) {
       return;
     }
     try {
-      if (process.platform !== "win32") {
-        process.kill(-pid, signal);
-      } else {
-        managed.child.kill(signal);
-      }
+      await signalProcessTree(pid, signal);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "ESRCH") {

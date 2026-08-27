@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ProcessManager } from "../src/process-manager.js";
+import { nodeCommand } from "./helpers/cross-platform-command.js";
 
 function createManager(): ProcessManager {
   return new ProcessManager({
@@ -21,9 +22,7 @@ describe("ProcessManager", () => {
   it("captures stdout, stderr, and exit state", async () => {
     manager = createManager();
     const sessionId = manager.start({
-      executable: "/bin/bash",
-      args: ["-c", "printf stdout; printf stderr >&2"],
-      commandForDisplay: "test output",
+      ...nodeCommand('process.stdout.write("stdout"); process.stderr.write("stderr");'),
       cwd: process.cwd(),
     });
 
@@ -44,9 +43,7 @@ describe("ProcessManager", () => {
   it("supports interactive stdin and closes cleanly", async () => {
     manager = createManager();
     const sessionId = manager.start({
-      executable: "/bin/cat",
-      args: [],
-      commandForDisplay: "cat",
+      ...nodeCommand("process.stdin.pipe(process.stdout);"),
       cwd: process.cwd(),
     });
 
@@ -62,9 +59,7 @@ describe("ProcessManager", () => {
   it("terminates a command when its timeout expires", async () => {
     manager = createManager();
     const sessionId = manager.start({
-      executable: "/bin/bash",
-      args: ["-c", "sleep 10"],
-      commandForDisplay: "sleep 10",
+      ...nodeCommand("setTimeout(() => {}, 10_000);"),
       cwd: process.cwd(),
       timeoutMs: 50,
     });
@@ -80,9 +75,7 @@ describe("ProcessManager", () => {
   it("handles a rejected initial stdin write without crashing the server", async () => {
     manager = createManager();
     const sessionId = manager.start({
-      executable: "/bin/bash",
-      args: ["-c", "true"],
-      commandForDisplay: "true",
+      ...nodeCommand("process.stdin.destroy(); setTimeout(() => {}, 100);"),
       cwd: process.cwd(),
       stdin: "x".repeat(1024 * 1024),
     });
@@ -98,9 +91,7 @@ describe("ProcessManager", () => {
   it("rejects a follow-up stdin write without emitting an unhandled error", async () => {
     manager = createManager();
     const sessionId = manager.start({
-      executable: "/bin/bash",
-      args: ["-c", "exec 0<&-; printf ready; sleep 2"],
-      commandForDisplay: "closed stdin",
+      ...nodeCommand('process.stdin.destroy(); process.stdout.write("ready"); setTimeout(() => {}, 2000);'),
       cwd: process.cwd(),
     });
     expect((await manager.read(sessionId, { waitMs: 1000 })).stdout).toContain("ready");
@@ -141,9 +132,7 @@ describe("ProcessManager", () => {
       defaultMaxOutputBytes: 1024 * 1024,
     });
     const sessionId = manager.start({
-      executable: "/bin/bash",
-      args: ["-c", "true"],
-      commandForDisplay: "true",
+      ...nodeCommand("process.exit(0);"),
       cwd: process.cwd(),
     });
 

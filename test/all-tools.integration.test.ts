@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
 import { startHttpServer, type RunningHttpServer } from "../src/http-server.js";
 import { createServices } from "../src/mcp-server.js";
+import { executableAvailable, isPosixModeMeaningful, normalizeTextNewlines, testBash } from "./helpers/cross-platform-command.js";
 
 const ALL_TOOLS = [
   "apply_patch",
@@ -138,6 +139,7 @@ describe.sequential("all registered MCP tools", () => {
           MCP_HOST: "127.0.0.1",
           MCP_DEFAULT_CWD: localDirectory,
           MCP_MAX_FILE_CHUNK_BYTES: "65536",
+          MCP_DEFAULT_SHELL: testBash(),
         },
         localDirectory,
       );
@@ -200,11 +202,11 @@ describe.sequential("all registered MCP tools", () => {
     });
     expect(completed).toMatchObject({ completed: true, exitCode: 7, stderr: "stderr-ok" });
     expect(String(completed.stdout)).toContain("env-ok");
-    expect(String(completed.stdout)).toContain(testRoot);
+    expect(String(completed.stdout)).toContain(path.basename(testRoot));
     expect(await callOk("exec_command", {
       cmd: "printf shell-ok",
       workdir: testRoot,
-      shell: "/bin/sh",
+      shell: testBash(),
       login: false,
       yieldTimeMs: 3000,
     })).toMatchObject({ completed: true, exitCode: 0, stdout: "shell-ok" });
@@ -236,8 +238,16 @@ describe.sequential("all registered MCP tools", () => {
       timeoutMs: 100,
       yieldTimeMs: 3000,
     });
-    expect(timedOut).toMatchObject({ completed: true, timedOut: true });
+    expect(timedOut).toMatchObject({ timedOut: true });
     expect(String(timedOut.error)).toContain("timeout");
+    const timedOutFinal = timedOut.completed === true
+      ? timedOut
+      : await callOk("read_process", {
+          sessionId: timedOut.sessionId,
+          afterSeq: timedOut.nextSeq,
+          waitMs: 7000,
+        });
+    expect(timedOutFinal).toMatchObject({ completed: true, running: false, timedOut: true });
 
     const interactive = await callOk("exec_command", {
       cmd: "node -e \"process.stdin.once('data', d => { process.stdout.write(d); process.exit(0); })\"",
@@ -277,9 +287,14 @@ describe.sequential("all registered MCP tools", () => {
       env: "script-env-ok",
       stdin: "script-stdin-ok",
     });
-    expect(String(script.scriptPath)).toMatch(/^\/tmp\/remote-dev-mcp-script-/);
+    expect(path.basename(path.dirname(String(script.scriptPath)))).toMatch(
+      /^remote-dev-mcp-script-/,
+    );
     const keptScript = await callOk("stat_path", { path: script.scriptPath });
-    expect(keptScript).toMatchObject({ type: "file", mode: "0700" });
+    expect(keptScript).toMatchObject({ type: "file" });
+    if (isPosixModeMeaningful()) {
+      expect(keptScript).toMatchObject({ mode: "0700" });
+    }
     await callOk("remove_path", {
       path: path.dirname(String(script.scriptPath)),
       recursive: true,
@@ -289,10 +304,10 @@ describe.sequential("all registered MCP tools", () => {
       { script: "printf default-bash-ok", expected: "default-bash-ok" },
       { runtime: "bash", script: "printf bash-ok", expected: "bash-ok" },
       { runtime: "sh", script: "printf sh-ok", expected: "sh-ok" },
-      { runtime: "python", script: "print('python-ok')", expected: "python-ok\n" },
+      { runtime: "node", script: "process.stdout.write('node-ok')", expected: "node-ok" },
       {
         runtime: "custom",
-        interpreter: "/bin/sh",
+        interpreter: testBash(),
         script: "printf custom-ok",
         expected: "custom-ok",
       },
@@ -307,6 +322,23 @@ describe.sequential("all registered MCP tools", () => {
         exitCode: 0,
         stdout: request.expected,
       });
+    }
+
+    const pythonResult = await callOk("run_script", {
+      runtime: "python",
+      script: "print('python-ok')",
+      workdir: testRoot,
+      yieldTimeMs: 3000,
+    });
+    if (executableAvailable("python3")) {
+      expect(pythonResult).toMatchObject({
+        completed: true,
+        exitCode: 0,
+        stdout: "python-ok\n",
+      });
+    } else {
+      expect(pythonResult).toMatchObject({ completed: true, exitCode: null });
+      expect(String(pythonResult.error)).toMatch(/python3|ENOENT|not found|cannot find/i);
     }
     expect(await callError("run_script", { runtime: "custom", script: "exit 0" })).toContain(
       "interpreter is required",
@@ -333,7 +365,13 @@ describe.sequential("all registered MCP tools", () => {
       sessionId: longSession,
       waitMs: 2000,
     });
-    expect(terminated).toMatchObject({ running: false, completed: true, signal: "SIGTERM" });
+    expect(terminated).toMatchObject({ running: false, completed: true });
+    if (process.platform === "win32") {
+      expect(terminated.signal).toBeNull();
+      expect(Number(terminated.exitCode)).not.toBe(0);
+    } else {
+      expect(terminated.signal).toBe("SIGTERM");
+    }
   }, 30_000);
 
   it("handles text, metadata, listings, permissions, and unified patches", async () => {
@@ -356,10 +394,14 @@ describe.sequential("all registered MCP tools", () => {
       content: unicodeText,
       fileMode: "0640",
     });
-    expect(await callOk("stat_path", {
+    const initiallyWritten = await callOk("stat_path", {
       path: "text/nested/unicode.txt",
       cwd: testRoot,
-    })).toMatchObject({ type: "file", mode: "0640" });
+    });
+    expect(initiallyWritten).toMatchObject({ type: "file" });
+    if (isPosixModeMeaningful()) {
+      expect(initiallyWritten).toMatchObject({ mode: "0640" });
+    }
 
     await callOk("chmod_path", {
       path: "text/nested/unicode.txt",
@@ -373,10 +415,13 @@ describe.sequential("all registered MCP tools", () => {
       mode: "overwrite",
       fileMode: "0644",
     });
-    expect(await callOk("stat_path", {
+    const overwritten = await callOk("stat_path", {
       path: "text/nested/unicode.txt",
       cwd: testRoot,
-    })).toMatchObject({ mode: "0644" });
+    });
+    if (isPosixModeMeaningful()) {
+      expect(overwritten).toMatchObject({ mode: "0644" });
+    }
 
     let offset = 0;
     let reconstructed = "";
@@ -495,7 +540,7 @@ describe.sequential("all registered MCP tools", () => {
     });
     expect(visible.entries).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ relativePath: "nested/unicode.txt", type: "file" }),
+        expect.objectContaining({ relativePath: path.join("nested", "unicode.txt"), type: "file" }),
       ]),
     );
     expect(visible.entries).not.toEqual(
@@ -509,14 +554,14 @@ describe.sequential("all registered MCP tools", () => {
     })).toMatchObject({ count: 2, truncated: true });
 
     await callOk("exec_command", {
-      cmd: "ln -s nested/unicode.txt text/unicode-link",
+      cmd: `node -e "require('fs').symlinkSync('nested/unicode.txt', 'text/unicode-link', 'file')"`,
       workdir: testRoot,
       yieldTimeMs: 3000,
     });
     expect(await callOk("stat_path", {
       path: "text/unicode-link",
       cwd: testRoot,
-    })).toMatchObject({ type: "symlink", symlinkTarget: "nested/unicode.txt" });
+    })).toMatchObject({ type: "symlink", symlinkTarget: path.join("nested", "unicode.txt") });
 
     await callOk("write_file", {
       path: "patch-target.txt",
@@ -537,10 +582,11 @@ describe.sequential("all registered MCP tools", () => {
       cwd: testRoot,
       checkOnly: true,
     })).toMatchObject({ applied: false, checkOnly: true });
-    expect(await callOk("read_file", {
+    const restoredPatchTarget1 = await callOk("read_file", {
       path: "patch-target.txt",
       cwd: testRoot,
-    })).toMatchObject({ content: "old\n" });
+    });
+    expect(normalizeTextNewlines(String(restoredPatchTarget1.content))).toBe("old\n");
     expect(await callOk("apply_patch", { patch, cwd: testRoot })).toMatchObject({
       applied: true,
       checkOnly: false,
@@ -550,10 +596,11 @@ describe.sequential("all registered MCP tools", () => {
       cwd: testRoot,
       reverse: true,
     })).toMatchObject({ applied: true });
-    expect(await callOk("read_file", {
+    const restoredPatchTarget2 = await callOk("read_file", {
       path: "patch-target.txt",
       cwd: testRoot,
-    })).toMatchObject({ content: "old\n" });
+    });
+    expect(normalizeTextNewlines(String(restoredPatchTarget2.content))).toBe("old\n");
     expect(await callError("apply_patch", {
       patch: "this is not a unified patch",
       cwd: testRoot,
@@ -594,10 +641,11 @@ describe.sequential("all registered MCP tools", () => {
       cwd: path.join(testRoot, "three-way"),
       threeWay: true,
     })).toMatchObject({ applied: true });
-    expect(await callOk("read_file", {
+    const threeWayValue = await callOk("read_file", {
       path: "value.txt",
       cwd: path.join(testRoot, "three-way"),
-    })).toMatchObject({ content: "three-way-result\n" });
+    });
+    expect(normalizeTextNewlines(String(threeWayValue.content))).toBe("three-way-result\n");
   }, 30_000);
 
   it("transfers, hashes, copies, moves, and removes isolated paths", async () => {
