@@ -1,22 +1,23 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
 export interface WakaTimeCommandRunner {
-  run(command: string, args: string[]): Promise<void>;
+  run(command: string, args: string[], env?: NodeJS.ProcessEnv): Promise<void>;
 }
 
 class ExecFileWakaTimeCommandRunner implements WakaTimeCommandRunner {
-  async run(command: string, args: string[]): Promise<void> {
+  async run(command: string, args: string[], env?: NodeJS.ProcessEnv): Promise<void> {
     await execFileAsync(command, args, {
       encoding: "utf8",
       timeout: 10_000,
       windowsHide: true,
       maxBuffer: 256 * 1024,
+      env: env ? { ...process.env, ...env } : process.env,
     });
   }
 }
@@ -36,10 +37,14 @@ export interface WakaTimeWorkspaceSnapshot {
 export interface WakaTimeTrackerOptions {
   enabled: boolean;
   cliPath: string | undefined;
+  home?: string;
+  configPath?: string;
   model?: string;
   plugin: string;
   trackReads: boolean;
   trackShellChanges?: boolean;
+  processSnapshotRetentionMs?: number;
+  maxProcessSnapshots?: number;
   runner?: WakaTimeCommandRunner;
   now?: () => number;
 }
@@ -127,26 +132,37 @@ function fingerprintChanged(
 export class WakaTimeTracker {
   readonly #enabled: boolean;
   readonly #cliPath: string | undefined;
+  readonly #home: string | undefined;
+  readonly #configPath: string | undefined;
   readonly #model: string | undefined;
   readonly #plugin: string;
   readonly #trackReads: boolean;
   readonly #trackShellChanges: boolean;
+  readonly #processSnapshotRetentionMs: number;
+  readonly #maxProcessSnapshots: number;
   readonly #runner: WakaTimeCommandRunner;
   readonly #now: () => number;
   #lastHeartbeatEntity: string | undefined;
   #lastHeartbeatAt = 0;
   readonly #processSnapshots = new Map<
     string,
-    { cwd: string; snapshot: WakaTimeWorkspaceSnapshot }
+    { cwd: string; snapshot: WakaTimeWorkspaceSnapshot; rememberedAt: number }
   >();
 
   constructor(options: WakaTimeTrackerOptions) {
     this.#enabled = options.enabled;
     this.#cliPath = options.cliPath;
+    this.#home = options.home?.trim() || undefined;
+    this.#configPath = options.configPath?.trim() || undefined;
     this.#model = options.model?.trim() || undefined;
     this.#plugin = options.plugin;
     this.#trackReads = options.trackReads;
     this.#trackShellChanges = options.trackShellChanges ?? true;
+    this.#processSnapshotRetentionMs = Math.max(
+      1_000,
+      options.processSnapshotRetentionMs ?? 60 * 60 * 1000,
+    );
+    this.#maxProcessSnapshots = Math.max(1, options.maxProcessSnapshots ?? 128);
     this.#runner = options.runner ?? new ExecFileWakaTimeCommandRunner();
     this.#now = options.now ?? Date.now;
   }
@@ -174,7 +190,14 @@ export class WakaTimeTracker {
 
     this.#lastHeartbeatEntity = resolvedEntity;
     this.#lastHeartbeatAt = now;
-    const args = [
+    if (this.#home) {
+      await mkdir(this.#home, { recursive: true });
+    }
+    const args: string[] = [];
+    if (this.#configPath) {
+      args.push("--config", this.#configPath);
+    }
+    args.push(
       "--entity",
       resolvedEntity,
       "--category",
@@ -184,7 +207,7 @@ export class WakaTimeTracker {
       "--sync-ai-disabled",
       "--timeout",
       "5",
-    ];
+    );
     if (options.unsaved) {
       args.push("--is-unsaved-entity");
     }
@@ -202,13 +225,25 @@ export class WakaTimeTracker {
       args.push("--write");
     }
     try {
-      await this.#runner.run(this.#cliPath, args);
+      await this.#runner.run(
+        this.#cliPath,
+        args,
+        this.#home ? { WAKATIME_HOME: this.#home } : undefined,
+      );
     } catch (error) {
       if (this.#lastHeartbeatEntity === resolvedEntity && this.#lastHeartbeatAt === now) {
         this.#lastHeartbeatEntity = undefined;
         this.#lastHeartbeatAt = 0;
       }
       throw error;
+    }
+  }
+
+  #pruneProcessSnapshots(now = this.#now()): void {
+    for (const [sessionId, tracked] of this.#processSnapshots) {
+      if (now - tracked.rememberedAt > this.#processSnapshotRetentionMs) {
+        this.#processSnapshots.delete(sessionId);
+      }
     }
   }
 
@@ -220,10 +255,21 @@ export class WakaTimeTracker {
     if (!snapshot) {
       return;
     }
-    this.#processSnapshots.set(sessionId, { cwd, snapshot });
+    const now = this.#now();
+    this.#pruneProcessSnapshots(now);
+    this.#processSnapshots.delete(sessionId);
+    while (this.#processSnapshots.size >= this.#maxProcessSnapshots) {
+      const oldestSessionId = this.#processSnapshots.keys().next().value;
+      if (oldestSessionId === undefined) {
+        break;
+      }
+      this.#processSnapshots.delete(oldestSessionId);
+    }
+    this.#processSnapshots.set(sessionId, { cwd, snapshot, rememberedAt: now });
   }
 
   async trackProcessCompletion(sessionId: string, running: boolean): Promise<void> {
+    this.#pruneProcessSnapshots();
     if (running) {
       return;
     }

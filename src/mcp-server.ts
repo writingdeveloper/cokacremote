@@ -16,10 +16,14 @@ export function createServices(config: AppConfig): McpServices {
   const wakatimeTracker = new WakaTimeTracker({
     enabled: config.wakatimeEnabled,
     cliPath: config.wakatimeCli,
+    home: config.wakatimeHome,
+    configPath: config.wakatimeConfig,
     model: config.wakatimeModel,
     plugin: config.wakatimePlugin,
     trackReads: config.wakatimeTrackReads,
     trackShellChanges: config.wakatimeTrackShellChanges,
+    processSnapshotRetentionMs: config.processRetentionMs,
+    maxProcessSnapshots: config.maxProcesses,
   });
   return {
     processManager: new ProcessManager({

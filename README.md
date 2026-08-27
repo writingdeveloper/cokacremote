@@ -399,15 +399,17 @@ This verification executes real commands on the target server and creates, modif
 
 Cokacremote can optionally report MCP-driven coding to WakaTime as **AI Coding** with a GPT model identity plus the WakaTime-recognized `chatgpt-web/0.1.0` editor identity. WakaTime normalizes this identity to `Chatgpt Web` in editor summaries. The actual file path is used as the heartbeat entity, so WakaTime can continue to auto-detect the project, language, and Git branch while the model/editor attribution remains ChatGPT-specific.
 
-`write_file`, `replace_in_file`, `upload_file`, and applied patches generate write heartbeats. Text writes/replacements and unified patches also report exact `--ai-line-changes` counts; binary/chunk uploads omit that field rather than guessing. Deleted files are reported with `--is-unsaved-entity` so removals remain visible. `read_file` can generate non-write heartbeats, and `exec_command` / `run_script` compare Git workspace state before and after the process so source files changed by shell commands are also attributed. Shell-originated edits intentionally omit AI line counts when an operation-local exact value cannot be proven. Long-running process snapshots are retained across stateless MCP requests until `read_process`, `write_stdin`, or termination observes completion.
+`write_file`, `replace_in_file`, `upload_file`, and applied patches generate write heartbeats. Text writes/replacements and unified patches also report exact `--ai-line-changes` counts; binary/chunk uploads omit that field rather than guessing. Deleted files are reported with `--is-unsaved-entity` so removals remain visible. `read_file` can generate non-write heartbeats, and `exec_command` / `run_script` compare Git workspace state before and after the process so source files changed by shell commands are also attributed. Shell-originated edits intentionally omit AI line counts when an operation-local exact value cannot be proven. Long-running process snapshots are retained across stateless MCP requests until completion is observed, bounded by the configured process retention and retained-session limits so WakaTime tracking state cannot grow without bound.
 
-`wakatime-cli` is always invoked with `--category "ai coding"`, a combined `--plugin "gpt/5.6-sol chatgpt-web/0.1.0"` identity by default, and `--sync-ai-disabled`. Cokacremote does **not** modify Claude or Codex WakaTime hooks/configuration and does not write `~/.wakatime.cfg`; the existing WakaTime CLI may read the API key from that file in the normal way. Tracking errors are ignored so WakaTime cannot make an MCP file or command operation fail.
+`wakatime-cli` is always invoked with `--category "ai coding"`, a combined `--plugin "gpt/5.6-sol chatgpt-web/0.1.0"` identity by default, and `--sync-ai-disabled`. `MCP_WAKATIME_HOME` can isolate cokacremote offline/log/internal state while `MCP_WAKATIME_CONFIG` points at the existing API-key config. Cokacremote does **not** modify Claude or Codex WakaTime hooks/configuration and does not write `~/.wakatime.cfg`; the existing WakaTime CLI may read the API key from that file in the normal way. Tracking errors are ignored so WakaTime cannot make an MCP file or command operation fail.
 
 Example:
 
 ```bash
 MCP_WAKATIME_ENABLED=true
 MCP_WAKATIME_CLI=/usr/local/bin/wakatime-cli
+MCP_WAKATIME_HOME=/var/lib/cokacremote/wakatime
+MCP_WAKATIME_CONFIG=~/.wakatime.cfg
 MCP_WAKATIME_MODEL=gpt/5.6-sol
 MCP_WAKATIME_PLUGIN=chatgpt-web/0.1.0
 MCP_WAKATIME_TRACK_READS=true
@@ -437,6 +439,8 @@ MCP_WAKATIME_TRACK_SHELL_CHANGES=true
 | `MCP_OAUTH_AUTHORIZATION_CODE_TTL_SECONDS` | `300` | One-time authorization code lifetime |
 | `MCP_WAKATIME_ENABLED` | `false` | Enable ChatGPT-attributed WakaTime heartbeats |
 | `MCP_WAKATIME_CLI` | none | Path to the WakaTime CLI executable |
+| `MCP_WAKATIME_HOME` | none | Optional isolated state directory for cokacremote WakaTime offline/log/internal state |
+| `MCP_WAKATIME_CONFIG` | none | Optional existing WakaTime config path reused for credentials/settings |
 | `MCP_WAKATIME_MODEL` | `gpt/5.6-sol` | WakaTime AI model token prepended to the plugin identity |
 | `MCP_WAKATIME_PLUGIN` | `chatgpt-web/0.1.0` | WakaTime editor/plugin identity used for MCP activity |
 | `MCP_WAKATIME_TRACK_READS` | `true` | Track successful `read_file` activity |

@@ -34,6 +34,8 @@ export interface AppConfig {
   maxEditFileBytes: number;
   wakatimeEnabled: boolean;
   wakatimeCli: string | undefined;
+  wakatimeHome: string | undefined;
+  wakatimeConfig: string | undefined;
   wakatimeModel: string;
   wakatimePlugin: string;
   wakatimeTrackReads: boolean;
@@ -262,6 +264,8 @@ export function loadConfig(
     ),
     wakatimeEnabled: parseBoolean(env.MCP_WAKATIME_ENABLED, false),
     wakatimeCli: env.MCP_WAKATIME_CLI?.trim() || undefined,
+    wakatimeHome: env.MCP_WAKATIME_HOME?.trim() || undefined,
+    wakatimeConfig: env.MCP_WAKATIME_CONFIG?.trim() || undefined,
     wakatimeModel: env.MCP_WAKATIME_MODEL?.trim() || "gpt/5.6-sol",
     wakatimePlugin: env.MCP_WAKATIME_PLUGIN?.trim() || "chatgpt-web/0.1.0",
     wakatimeTrackReads: parseBoolean(env.MCP_WAKATIME_TRACK_READS, true),
