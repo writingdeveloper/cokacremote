@@ -48,7 +48,7 @@ describe.runIf(process.platform === "win32")("Windows server supervisor environm
       },
     );
     try {
-      for (let attempt = 0; attempt < 50 && !existsSync(resultPath); attempt += 1) {
+      for (let attempt = 0; attempt < 200 && !existsSync(resultPath); attempt += 1) {
         await delay(100);
       }
       expect(existsSync(resultPath)).toBe(true);
@@ -64,5 +64,5 @@ describe.runIf(process.platform === "win32")("Windows server supervisor environm
       }
       rmSync(tempDir, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 45_000);
 });

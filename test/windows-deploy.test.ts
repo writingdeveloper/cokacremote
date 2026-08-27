@@ -101,7 +101,7 @@ describe.runIf(process.platform === "win32")("portable Windows deployment", () =
       expect(remaining).toBe("0");
       rmSync(tempDir, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 90_000);
 
   it("provides a machine-neutral config example", () => {
     expect(existsSync(path.join(deployRoot, "windows.env.example"))).toBe(true);

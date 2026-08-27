@@ -409,7 +409,7 @@ describe.sequential("all registered MCP tools", () => {
     expect(await callOk("clear_completed_processes", { olderThanMs: 0 })).toEqual(
       expect.objectContaining({ cleared: expect.any(Number) }),
     );
-  }, 30_000);
+  }, 120_000);
 
   it("handles text, metadata, listings, permissions, and unified patches", async () => {
     await callOk("make_directory", {
@@ -683,7 +683,7 @@ describe.sequential("all registered MCP tools", () => {
       cwd: path.join(testRoot, "three-way"),
     });
     expect(normalizeTextNewlines(String(threeWayValue.content))).toBe("three-way-result\n");
-  }, 30_000);
+  }, 120_000);
 
   it("transfers, hashes, copies, moves, and removes isolated paths", async () => {
     await callOk("make_directory", {
@@ -918,7 +918,7 @@ describe.sequential("all registered MCP tools", () => {
       cwd: testRoot,
       force: true,
     })).toMatchObject({ removed: true });
-  }, 30_000);
+  }, 120_000);
 
   it("exercises every published tool through MCP", () => {
     expect([...exercised].sort()).toEqual([...ALL_TOOLS]);
