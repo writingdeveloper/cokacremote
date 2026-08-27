@@ -477,3 +477,27 @@ This includes, but is not limited to:
 The user assumes full responsibility for all consequences arising from the use of this software, whether such use was intended, authorized, or foreseeable.
 
 **ALL RISKS ASSOCIATED WITH USE ARE BORNE BY THE USER**
+
+### Windows production runtime
+
+For Windows hosts, `deploy/windows/` provides a portable Scheduled Task runtime instead of embedding machine-specific paths in ad-hoc wrapper scripts. Copy `deploy/windows/windows.env.example` to an untracked private config, set `REPO_PATH`, `MCP_ENV_FILE`, `SERVER_PORT`, `HEALTH_URL`, and optional Cloudflare tunnel paths, then install it with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1 -ConfigPath C:\path\to\windows.env
+```
+
+The server supervisor adopts a matching existing listener after wrapper restarts, rejects unrelated owners of the configured port, waits on the child, and restarts it after exit. The optional tunnel supervisor uses cloudflared's native `--logfile` and similarly adopts a matching tunnel. The one-minute watchdog restarts stopped supervisor tasks, removes duplicate matching children, and recycles the server only after two consecutive health failures. Supervisor tasks use `IgnoreNew`, can run on battery, have no execution time limit, and are configured for Task Scheduler restart recovery.
+
+Inspect the runtime without changing it:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\status.ps1 -ConfigPath C:\path\to\windows.env
+```
+
+Remove only the registered tasks with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\uninstall.ps1
+```
+
+Use a unique `-TaskPrefix` for canaries or tests. Deployment-specific OAuth keys, Cloudflare credentials, domains, WakaTime paths, and other secrets belong in private environment/config files and should not be committed.
