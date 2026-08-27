@@ -8,6 +8,9 @@ describe("loadConfig", () => {
     expect(loadConfig({ MCP_ALLOW_NO_AUTH: "true" }, "/tmp").allowNoAuth).toBe(true);
   });
 
+  it("binds to loopback by default to avoid direct network exposure", () => {
+    expect(loadConfig({ MCP_AUTH_TOKEN: "secret" }, "/tmp").host).toBe("127.0.0.1");
+  });
   it("loads full-access host settings", () => {
     const config = loadConfig(
       {

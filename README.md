@@ -360,11 +360,32 @@ npx vitest run test/all-tools.integration.test.ts
 
 This verification executes real commands on the target server and creates, modifies, and deletes test files. For safety, `MCP_E2E_ROOT` must match the `/tmp/cokacremote-tools-e2e-*` pattern. The test uses only that isolated directory and attempts to clean it afterward. Do not point it at a directory containing production data, and check whether the directory remains after a failed or interrupted test. Running `npm ci` inside the production installation directory may alter its production-only dependency layout, so run tests from a separate checkout instead.
 
+## WakaTime attribution for ChatGPT MCP work
+
+> Security: By default the HTTP server binds only to `127.0.0.1`, so cokacremote is not directly reachable from LAN or Internet interfaces. Set a non-loopback `MCP_HOST` only when you intentionally want direct network exposure; prefer an authenticated proxy or private tunnel instead.
+
+Cokacremote can optionally report MCP-driven coding to WakaTime as **AI Coding** with a GPT model identity plus the WakaTime-recognized `chatgpt-web/0.1.0` editor identity. WakaTime normalizes this identity to `Chatgpt Web` in editor summaries. The actual file path is used as the heartbeat entity, so WakaTime can continue to auto-detect the project, language, and Git branch while the model/editor attribution remains ChatGPT-specific.
+
+`write_file`, `replace_in_file`, `upload_file`, and applied patches generate write heartbeats. Text writes/replacements and unified patches also report exact `--ai-line-changes` counts; binary/chunk uploads omit that field rather than guessing. Deleted files are reported with `--is-unsaved-entity` so removals remain visible. `read_file` can generate non-write heartbeats, and `exec_command` / `run_script` compare Git workspace state before and after the process so source files changed by shell commands are also attributed. Shell-originated edits intentionally omit AI line counts when an operation-local exact value cannot be proven. Long-running process snapshots are retained across stateless MCP requests until `read_process`, `write_stdin`, or termination observes completion.
+
+`wakatime-cli` is always invoked with `--category "ai coding"`, a combined `--plugin "gpt/5.6-sol chatgpt-web/0.1.0"` identity by default, and `--sync-ai-disabled`. Cokacremote does **not** modify Claude or Codex WakaTime hooks/configuration and does not write `~/.wakatime.cfg`; the existing WakaTime CLI may read the API key from that file in the normal way. Tracking errors are ignored so WakaTime cannot make an MCP file or command operation fail.
+
+Example:
+
+```bash
+MCP_WAKATIME_ENABLED=true
+MCP_WAKATIME_CLI=/usr/local/bin/wakatime-cli
+MCP_WAKATIME_MODEL=gpt/5.6-sol
+MCP_WAKATIME_PLUGIN=chatgpt-web/0.1.0
+MCP_WAKATIME_TRACK_READS=true
+MCP_WAKATIME_TRACK_SHELL_CHANGES=true
+```
+
 ## Key environment variables
 
 | Variable | Default | Description |
 |---|---:|---|
-| `MCP_HOST` | `0.0.0.0` | HTTP bind address |
+| `MCP_HOST` | `127.0.0.1` | HTTP bind address; loopback by default to prevent direct network exposure |
 | `MCP_PORT` | `3000` | HTTP port |
 | `MCP_ENDPOINT` | `/mcp` | Streamable HTTP MCP path |
 | `MCP_PUBLIC_URL` | none | External HTTPS base URL excluding `/mcp` |
@@ -380,6 +401,12 @@ This verification executes real commands on the target server and creates, modif
 | `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | OAuth access token lifetime |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | OAuth refresh token lifetime |
 | `MCP_OAUTH_AUTHORIZATION_CODE_TTL_SECONDS` | `300` | One-time authorization code lifetime |
+| `MCP_WAKATIME_ENABLED` | `false` | Enable ChatGPT-attributed WakaTime heartbeats |
+| `MCP_WAKATIME_CLI` | none | Path to the WakaTime CLI executable |
+| `MCP_WAKATIME_MODEL` | `gpt/5.6-sol` | WakaTime AI model token prepended to the plugin identity |
+| `MCP_WAKATIME_PLUGIN` | `chatgpt-web/0.1.0` | WakaTime editor/plugin identity used for MCP activity |
+| `MCP_WAKATIME_TRACK_READS` | `true` | Track successful `read_file` activity |
+| `MCP_WAKATIME_TRACK_SHELL_CHANGES` | `true` | Track Git workspace files changed by shell/script tools |
 | `MCP_DEFAULT_CWD` | server startup directory | Base directory for relative paths |
 | `MCP_DEFAULT_SHELL` | `$SHELL` or `/bin/bash` | Default shell for `exec_command` |
 | `MCP_MAX_REQUEST_BODY` | `8mb` | HTTP request body size limit |

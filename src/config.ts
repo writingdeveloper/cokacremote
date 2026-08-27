@@ -26,6 +26,12 @@ export interface AppConfig {
   maxProcesses: number;
   maxFileChunkBytes: number;
   maxEditFileBytes: number;
+  wakatimeEnabled: boolean;
+  wakatimeCli: string | undefined;
+  wakatimeModel: string;
+  wakatimePlugin: string;
+  wakatimeTrackReads: boolean;
+  wakatimeTrackShellChanges: boolean;
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -135,7 +141,7 @@ export function loadConfig(
     : undefined;
 
   return {
-    host: env.MCP_HOST?.trim() || "0.0.0.0",
+    host: env.MCP_HOST?.trim() || "127.0.0.1",
     port: parseInteger(env.MCP_PORT, 3000, "MCP_PORT", 1, 65_535),
     endpoint,
     publicUrl,
@@ -214,6 +220,15 @@ export function loadConfig(
       64 * 1024 * 1024,
       "MCP_MAX_EDIT_FILE_BYTES",
       4096,
+    ),
+    wakatimeEnabled: parseBoolean(env.MCP_WAKATIME_ENABLED, false),
+    wakatimeCli: env.MCP_WAKATIME_CLI?.trim() || undefined,
+    wakatimeModel: env.MCP_WAKATIME_MODEL?.trim() || "gpt/5.6-sol",
+    wakatimePlugin: env.MCP_WAKATIME_PLUGIN?.trim() || "chatgpt-web/0.1.0",
+    wakatimeTrackReads: parseBoolean(env.MCP_WAKATIME_TRACK_READS, true),
+    wakatimeTrackShellChanges: parseBoolean(
+      env.MCP_WAKATIME_TRACK_SHELL_CHANGES,
+      true,
     ),
   };
 }

@@ -7,6 +7,7 @@ import { ProcessManager } from "./process-manager.js";
 import { runScript } from "./script-runner.js";
 import { runTool } from "./tool-result.js";
 import { TOOL_ANNOTATIONS, toolAuthMetadata } from "./tool-metadata.js";
+import type { WakaTimeTracker } from "./wakatime-tracker.js";
 
 function processResult(result: Awaited<ReturnType<ProcessManager["read"]>>): Record<string, unknown> {
   return {
@@ -15,11 +16,19 @@ function processResult(result: Awaited<ReturnType<ProcessManager["read"]>>): Rec
   };
 }
 
+function trackProcessCompletion(
+  tracker: WakaTimeTracker,
+  result: Awaited<ReturnType<ProcessManager["read"]>>,
+): void {
+  void tracker.trackProcessCompletion(result.sessionId, result.running).catch(() => undefined);
+}
+
 export function registerExecTools(
   server: McpServer,
   config: AppConfig,
   processManager: ProcessManager,
   fileService: FileService,
+  wakatimeTracker: WakaTimeTracker,
 ): void {
   const authMetadata = toolAuthMetadata(config);
   const environmentSchema = z
@@ -104,6 +113,7 @@ export function registerExecTools(
     }) =>
       runTool(async () => {
         const cwd = fileService.resolve(".", workdir);
+        const snapshot = await wakatimeTracker.captureWorkspace(cwd).catch(() => undefined);
         const executable = shell || config.defaultShell;
         const sessionId = processManager.start({
           executable,
@@ -114,10 +124,12 @@ export function registerExecTools(
           timeoutMs,
           stdin,
         });
+        wakatimeTracker.rememberProcess(sessionId, cwd, snapshot);
         await processManager.waitForExit(sessionId, yieldTimeMs);
         const result = await processManager.read(sessionId, {
           maxOutputBytes,
         });
+        trackProcessCompletion(wakatimeTracker, result);
         return processResult(result);
       }),
   );
@@ -185,10 +197,12 @@ export function registerExecTools(
       keepScript,
     }) =>
       runTool(async () => {
+        const cwd = fileService.resolve(".", workdir);
+        const snapshot = await wakatimeTracker.captureWorkspace(cwd).catch(() => undefined);
         const result = await runScript(processManager, {
           runtime,
           script,
-          cwd: fileService.resolve(".", workdir),
+          cwd,
           args,
           env,
           interpreter,
@@ -199,6 +213,8 @@ export function registerExecTools(
           maxOutputBytes,
           keepScript,
         });
+        wakatimeTracker.rememberProcess(result.sessionId, cwd, snapshot);
+        trackProcessCompletion(wakatimeTracker, result);
         return processResult(result);
       }),
   );
@@ -245,6 +261,7 @@ export function registerExecTools(
           waitMs: closeStdin ? 0 : yieldTimeMs,
           maxOutputBytes,
         });
+        trackProcessCompletion(wakatimeTracker, result);
         return processResult(result);
       }),
   );
@@ -273,15 +290,15 @@ export function registerExecTools(
       _meta: authMetadata,
     },
     async ({ sessionId, afterSeq, waitMs, maxOutputBytes }) =>
-      runTool(async () =>
-        processResult(
-          await processManager.read(sessionId, {
-            afterSeq,
-            waitMs,
-            maxOutputBytes,
-          }),
-        ),
-      ),
+      runTool(async () => {
+        const result = await processManager.read(sessionId, {
+          afterSeq,
+          waitMs,
+          maxOutputBytes,
+        });
+        trackProcessCompletion(wakatimeTracker, result);
+        return processResult(result);
+      }),
   );
 
   server.registerTool(
@@ -310,9 +327,11 @@ export function registerExecTools(
       _meta: authMetadata,
     },
     async ({ sessionId, signal, graceMs }) =>
-      runTool(async () =>
-        processResult(await processManager.terminate(sessionId, signal, graceMs)),
-      ),
+      runTool(async () => {
+        const result = await processManager.terminate(sessionId, signal, graceMs);
+        trackProcessCompletion(wakatimeTracker, result);
+        return processResult(result);
+      }),
   );
 
   server.registerTool(

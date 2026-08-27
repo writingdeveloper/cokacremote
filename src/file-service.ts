@@ -25,6 +25,7 @@ import { execFile } from "node:child_process";
 
 import { errorMessage } from "./errors.js";
 import { expandPath } from "./paths.js";
+import type { WakaTimeTracker } from "./wakatime-tracker.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -35,6 +36,7 @@ export interface FileServiceOptions {
   maxChunkBytes: number;
   maxEditFileBytes: number;
   maxOutputBytes: number;
+  activityTracker?: WakaTimeTracker;
 }
 
 export interface ListDirectoryOptions {
@@ -98,6 +100,151 @@ function decodeBase64(data: string): Buffer {
 
 function decodeContent(data: string, encoding: FileContentEncoding): Buffer {
   return encoding === "base64" ? decodeBase64(data) : Buffer.from(data, "utf8");
+}
+
+function textLineCount(buffer: Buffer): number | undefined {
+  if (!isUtf8(buffer)) {
+    return undefined;
+  }
+  const text = buffer.toString("utf8");
+  if (text.length === 0) {
+    return 0;
+  }
+  const parts = text.split(/\r\n|\r|\n/);
+  return parts.length - (parts.at(-1) === "" ? 1 : 0);
+}
+
+async function textLineChanges(
+  before: Buffer | undefined,
+  after: Buffer | undefined,
+  maxBytes: number,
+): Promise<number | undefined> {
+  if (before && before.length > maxBytes) {
+    return undefined;
+  }
+  if (after && after.length > maxBytes) {
+    return undefined;
+  }
+  if (!before) {
+    return after ? textLineCount(after) : 0;
+  }
+  if (!after) {
+    return textLineCount(before);
+  }
+  if (!isUtf8(before) || !isUtf8(after)) {
+    return undefined;
+  }
+  if (before.equals(after)) {
+    return 0;
+  }
+
+  const temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "cokacremote-line-diff-"),
+  );
+  const beforePath = path.join(temporaryDirectory, "before.txt");
+  const afterPath = path.join(temporaryDirectory, "after.txt");
+  try {
+    await Promise.all([writeFile(beforePath, before), writeFile(afterPath, after)]);
+    let stdout = "";
+    try {
+      const result = await execFileAsync(
+        "git",
+        ["diff", "--no-index", "--numstat", "--no-renames", "--", beforePath, afterPath],
+        { encoding: "utf8", windowsHide: true },
+      );
+      stdout = result.stdout;
+    } catch (error) {
+      const diffError = error as Error & { code?: number; stdout?: string };
+      if (diffError.code !== 1) {
+        return undefined;
+      }
+      stdout = diffError.stdout ?? "";
+    }
+    const [added, removed] = stdout.trim().split(/\s+/, 3);
+    if (!added || !removed || added === "-" || removed === "-") {
+      return undefined;
+    }
+    const addedCount = Number.parseInt(added, 10);
+    const removedCount = Number.parseInt(removed, 10);
+    if (!Number.isFinite(addedCount) || !Number.isFinite(removedCount)) {
+      return undefined;
+    }
+    return addedCount + removedCount;
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
+interface PatchFileChange {
+  relativePath: string;
+  aiLineChanges: number;
+  deleted: boolean;
+}
+
+function patchHeaderPath(line: string): string {
+  return line.slice(4).split("\t", 1)[0] ?? "";
+}
+
+function normalizePatchPath(rawPath: string): string {
+  return rawPath.startsWith("a/") || rawPath.startsWith("b/")
+    ? rawPath.slice(2)
+    : rawPath;
+}
+
+function parsePatchFileChanges(patchText: string, reverse: boolean): PatchFileChange[] {
+  const changes = new Map<string, PatchFileChange>();
+  let sourcePath = "";
+  let current: PatchFileChange | undefined;
+  let inHunk = false;
+
+  for (const line of patchText.split(/\r?\n/)) {
+    if (line.startsWith("diff --git ")) {
+      sourcePath = "";
+      current = undefined;
+      inHunk = false;
+      continue;
+    }
+    if (line.startsWith("--- ")) {
+      sourcePath = patchHeaderPath(line);
+      inHunk = false;
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      const targetPath = patchHeaderPath(line);
+      const finalPath = reverse ? sourcePath : targetPath;
+      const otherPath = reverse ? targetPath : sourcePath;
+      const deleted = finalPath === "/dev/null";
+      const rawPath = deleted ? otherPath : finalPath;
+      if (!rawPath || rawPath === "/dev/null") {
+        current = undefined;
+        continue;
+      }
+      const relativePath = normalizePatchPath(rawPath);
+      current = changes.get(relativePath) ?? {
+        relativePath,
+        aiLineChanges: 0,
+        deleted,
+      };
+      current.deleted = deleted;
+      changes.set(relativePath, current);
+      inHunk = false;
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      continue;
+    }
+    if (
+      inHunk &&
+      current &&
+      ((line.startsWith("+") && !line.startsWith("+++")) ||
+        (line.startsWith("-") && !line.startsWith("---")))
+    ) {
+      current.aiLineChanges += 1;
+    }
+  }
+
+  return [...changes.values()];
 }
 
 function isPathWithin(parentPath: string, candidatePath: string): boolean {
@@ -172,6 +319,20 @@ export class FileService {
 
   constructor(options: FileServiceOptions) {
     this.#options = options;
+  }
+
+  #trackFile(
+    filePath: string,
+    write: boolean,
+    options: { aiLineChanges?: number; unsaved?: boolean } = {},
+  ): void {
+    const tracker = this.#options.activityTracker;
+    if (!tracker) {
+      return;
+    }
+    void tracker
+      .trackFile(filePath, { write, ...options })
+      .catch(() => undefined);
   }
 
   resolve(inputPath: string, cwd?: string): string {
@@ -292,6 +453,7 @@ export class FileService {
       }
       const data = buffer.subarray(0, bytesRead);
       const nextOffset = safeOffset + bytesRead;
+      this.#trackFile(resolvedPath, false);
       return {
         path: resolvedPath,
         encoding,
@@ -318,6 +480,17 @@ export class FileService {
   ): Promise<Record<string, unknown>> {
     const resolvedPath = this.resolve(inputPath, cwd);
     const data = decodeContent(content, encoding);
+    let before: Buffer | undefined;
+    try {
+      const existing = await stat(resolvedPath);
+      if (existing.isFile() && existing.size <= this.#options.maxEditFileBytes) {
+        before = await readFile(resolvedPath);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
     if (createParents) {
       await mkdir(path.dirname(resolvedPath), { recursive: true });
     }
@@ -330,6 +503,15 @@ export class FileService {
       await chmod(resolvedPath, fileMode);
     }
     const info = await stat(resolvedPath);
+    const after = info.size <= this.#options.maxEditFileBytes
+      ? await readFile(resolvedPath)
+      : undefined;
+    const aiLineChanges = await textLineChanges(
+      before,
+      after,
+      this.#options.maxEditFileBytes,
+    );
+    this.#trackFile(resolvedPath, true, { aiLineChanges });
     return {
       path: resolvedPath,
       bytesWritten: data.length,
@@ -373,6 +555,7 @@ export class FileService {
       const safeOffset = Math.max(0, offset);
       const { bytesWritten } = await handle.write(data, 0, data.length, safeOffset);
       const info = await handle.stat();
+      this.#trackFile(resolvedPath, true);
       return {
         path: resolvedPath,
         offset: safeOffset,
@@ -444,6 +627,12 @@ export class FileService {
       ? original.split(oldText).join(newText)
       : original.replace(oldText, newText);
     await writeFile(resolvedPath, updated, "utf8");
+    const aiLineChanges = await textLineChanges(
+      originalBuffer,
+      Buffer.from(updated, "utf8"),
+      this.#options.maxEditFileBytes,
+    );
+    this.#trackFile(resolvedPath, true, { aiLineChanges });
     return {
       path: resolvedPath,
       replacements: replaceAll ? occurrences : Math.min(occurrences, 1),
@@ -492,6 +681,12 @@ export class FileService {
         encoding: "utf8",
         maxBuffer: this.#options.maxOutputBytes,
       });
+      for (const change of parsePatchFileChanges(patchText, options.reverse)) {
+        this.#trackFile(path.resolve(resolvedCwd, change.relativePath), true, {
+          aiLineChanges: change.aiLineChanges,
+          unsaved: change.deleted,
+        });
+      }
       return {
         cwd: resolvedCwd,
         applied: true,
@@ -662,7 +857,28 @@ export class FileService {
     force: boolean,
   ): Promise<Record<string, unknown>> {
     const resolvedPath = this.resolve(inputPath, cwd);
+    let before: Buffer | undefined;
+    let wasFile = false;
+    try {
+      const existing = await lstat(resolvedPath);
+      wasFile = existing.isFile();
+      if (wasFile && existing.size <= this.#options.maxEditFileBytes) {
+        before = await readFile(resolvedPath);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !force) {
+        throw error;
+      }
+    }
     await rm(resolvedPath, { recursive, force });
+    if (wasFile) {
+      const aiLineChanges = await textLineChanges(
+        before,
+        undefined,
+        this.#options.maxEditFileBytes,
+      );
+      this.#trackFile(resolvedPath, true, { aiLineChanges, unsaved: true });
+    }
     return { path: resolvedPath, removed: true };
   }
 

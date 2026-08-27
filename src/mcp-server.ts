@@ -5,13 +5,23 @@ import { registerExecTools } from "./exec-tools.js";
 import { FileService } from "./file-service.js";
 import { registerFileTools } from "./file-tools.js";
 import { ProcessManager } from "./process-manager.js";
+import { WakaTimeTracker } from "./wakatime-tracker.js";
 
 export interface McpServices {
   processManager: ProcessManager;
   fileService: FileService;
+  wakatimeTracker: WakaTimeTracker;
 }
 
 export function createServices(config: AppConfig): McpServices {
+  const wakatimeTracker = new WakaTimeTracker({
+    enabled: config.wakatimeEnabled,
+    cliPath: config.wakatimeCli,
+    model: config.wakatimeModel,
+    plugin: config.wakatimePlugin,
+    trackReads: config.wakatimeTrackReads,
+    trackShellChanges: config.wakatimeTrackShellChanges,
+  });
   return {
     processManager: new ProcessManager({
       maxRetainedOutputBytes: config.maxRetainedProcessOutputBytes,
@@ -24,7 +34,9 @@ export function createServices(config: AppConfig): McpServices {
       maxChunkBytes: config.maxFileChunkBytes,
       maxEditFileBytes: config.maxEditFileBytes,
       maxOutputBytes: config.maxOutputBytes,
+      activityTracker: wakatimeTracker,
     }),
+    wakatimeTracker,
   };
 }
 
@@ -46,6 +58,7 @@ export function createMcpServer(config: AppConfig, services: McpServices): McpSe
     config,
     services.processManager,
     services.fileService,
+    services.wakatimeTracker,
   );
   registerFileTools(server, config, services.fileService);
   return server;
