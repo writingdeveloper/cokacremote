@@ -96,6 +96,28 @@ describe("client-facing metadata accuracy", () => {
     }
   });
 
+  it("keeps client-facing tool schemas stable across runtime budget profiles", async () => {
+    const compact = await listTools({
+      MCP_AUTH_TOKEN: "static-secret",
+      MCP_MAX_OUTPUT_BYTES: "131072",
+      MCP_MAX_FILE_CHUNK_BYTES: "262144",
+      MCP_PROCESS_YIELD_TIME_MS: "30000",
+      MCP_PROCESS_POLL_WAIT_MS: "30000",
+    });
+    const defaultProfile = await listTools({
+      MCP_AUTH_TOKEN: "static-secret",
+      MCP_MAX_OUTPUT_BYTES: "1048576",
+      MCP_MAX_FILE_CHUNK_BYTES: "1048576",
+      MCP_PROCESS_YIELD_TIME_MS: "10000",
+      MCP_PROCESS_POLL_WAIT_MS: "1000",
+    });
+
+    const compactByName = new Map(compact.map((tool) => [tool.name, tool.inputSchema]));
+    for (const tool of defaultProfile) {
+      expect(compactByName.get(tool.name), tool.name).toEqual(tool.inputSchema);
+    }
+  });
+
   it("describes process timing, session, polling, and escalation semantics exactly", async () => {
     const tools = await listTools({ MCP_AUTH_TOKEN: "static-secret" });
     const byName = new Map(tools.map((tool) => [tool.name, tool]));

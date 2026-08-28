@@ -6,6 +6,8 @@ import { registerFileTools } from "./file-tools.js";
 import { ProcessManager } from "./process-manager.js";
 import { WakaTimeTracker } from "./wakatime-tracker.js";
 
+export const REGISTERED_TOOL_COUNT = 22;
+
 export interface McpServices {
   processManager: ProcessManager;
   fileService: FileService;
@@ -55,8 +57,8 @@ export function createMcpServer(config: AppConfig, services: McpServices): McpSe
         "This server is an unrestricted remote development environment. Tools operate directly on the host with the MCP service process's full OS permissions. Use exec_command for shell, build, test, package, Git, service, and log workflows; run_script for complete Bash, Node.js, or Python scripts; and the file tools for direct file operations. For browser clients, batch related shell work into one exec_command or run_script call when practical. Let ordinary commands wait for their configured yield time, and poll genuinely long-running commands with read_process using afterSeq plus a long waitMs instead of frequent short polls. Use write_stdin only when interaction is required.",
       capabilities: { logging: {} },
       cacheHints: {
-        "server/discover": { ttlMs: 300_000, cacheScope: "private" },
-        "tools/list": { ttlMs: 300_000, cacheScope: "private" },
+        "server/discover": { ttlMs: config.discoveryCacheTtlMs, cacheScope: "private" },
+        "tools/list": { ttlMs: config.discoveryCacheTtlMs, cacheScope: "private" },
       },
     },
   );

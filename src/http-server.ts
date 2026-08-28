@@ -11,7 +11,7 @@ import { BusyError, ConcurrencyGate } from "./concurrency-gate.js";
 import type { AppConfig } from "./config.js";
 import { errorMessage } from "./errors.js";
 import { CimdClientResolver, isCimdClientId, type CimdClientResolverLike } from "./cimd.js";
-import { createMcpServer, type McpServices } from "./mcp-server.js";
+import { createMcpServer, REGISTERED_TOOL_COUNT, type McpServices } from "./mcp-server.js";
 import { OAUTH_SCOPES, RemoteDevOAuthProvider } from "./oauth.js";
 
 export interface RunningHttpServer {
@@ -56,6 +56,12 @@ export async function startHttpServer(
   services: McpServices,
   options: HttpServerOptions = {},
 ): Promise<RunningHttpServer> {
+  const serverInstanceId = randomUUID();
+  const startedAt = new Date().toISOString();
+  let lastMcpRequestAt: string | undefined;
+  let mcpRequestCount = 0;
+  let mcpAbortedRequestCount = 0;
+  let mcpErrorResponseCount = 0;
   const app = express();
   app.disable("x-powered-by");
   if (config.trustProxyHops > 0) {
@@ -67,7 +73,10 @@ export async function startHttpServer(
       return;
     }
     const requestId = randomUUID();
-    const startedAt = performance.now();
+    const requestStartedAt = performance.now();
+    const requestAt = new Date().toISOString();
+    lastMcpRequestAt = requestAt;
+    mcpRequestCount += 1;
     let logged = false;
     response.set("X-Request-Id", requestId);
     const logCompletion = (outcome: "completed" | "aborted") => {
@@ -75,16 +84,27 @@ export async function startHttpServer(
         return;
       }
       logged = true;
+      if (outcome === "aborted") {
+        mcpAbortedRequestCount += 1;
+      }
+      if (response.statusCode >= 400) {
+        mcpErrorResponseCount += 1;
+      }
       console.log(
         JSON.stringify({
           event: "mcp_request",
+          serverInstanceId,
+          processId: process.pid,
           requestId,
+          requestAt,
           httpMethod: request.method,
           rpcMethod: rpcMethod(request.body),
           toolName: rpcToolName(request.body),
+          protocolVersion: request.header("mcp-protocol-version") ?? undefined,
+          sessionId: request.header("mcp-session-id") ?? undefined,
           status: response.statusCode,
           outcome,
-          durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+          durationMs: Math.round((performance.now() - requestStartedAt) * 10) / 10,
         }),
       );
     };
@@ -226,6 +246,14 @@ export async function startHttpServer(
       activeMcpSessions: 0,
       activeMcpRequests: concurrency.active,
       queuedMcpRequests: concurrency.queued,
+      serverInstanceId,
+      processId: process.pid,
+      startedAt,
+      lastMcpRequestAt,
+      mcpRequestCount,
+      mcpAbortedRequestCount,
+      mcpErrorResponseCount,
+      registeredToolCount: REGISTERED_TOOL_COUNT,
       concurrency,
       managedProcesses: processes.running + processes.completedRetained,
       processes,
@@ -240,13 +268,13 @@ export async function startHttpServer(
       legacy: "reject",
       responseMode: "json",
       onerror: (error) => {
-        console.error("MCP handler error:", errorMessage(error));
+        console.error("MCP handler error:", error instanceof Error ? (error.stack ?? error.message) : errorMessage(error));
       },
     },
   );
   const nodeMcpHandler = toNodeHandler(mcpHandler, {
     onerror: (error) => {
-      console.error("MCP Node adapter error:", errorMessage(error));
+      console.error("MCP Node adapter error:", error instanceof Error ? (error.stack ?? error.message) : errorMessage(error));
     },
   });
 
@@ -258,13 +286,13 @@ export async function startHttpServer(
     const server = createMcpServer(config, services);
     try {
       transport.onerror = (error) => {
-        console.error("Legacy MCP transport error:", errorMessage(error));
+        console.error("Legacy MCP transport error:", error instanceof Error ? (error.stack ?? error.message) : errorMessage(error));
       };
       await server.connect(transport);
       await transport.handleRequest(request, response, request.body);
     } finally {
       await server.close().catch((error) => {
-        console.error("Failed to close legacy MCP request:", errorMessage(error));
+        console.error("Failed to close legacy MCP request:", error instanceof Error ? (error.stack ?? error.message) : errorMessage(error));
       });
     }
   };
@@ -287,7 +315,7 @@ export async function startHttpServer(
         }
         return;
       }
-      console.error("MCP POST failed:", errorMessage(error));
+      console.error("MCP POST failed:", error instanceof Error ? (error.stack ?? error.message) : errorMessage(error));
       if (!response.headersSent) {
         rpcError(response, 500, "Internal MCP server error");
       }
@@ -333,8 +361,18 @@ export async function startHttpServer(
     listeningServer.once("error", reject);
   });
 
+  console.log(JSON.stringify({ event: "server_lifecycle", phase: "started", serverInstanceId, processId: process.pid, startedAt, registeredToolCount: REGISTERED_TOOL_COUNT }));
+  const heartbeatInterval = setInterval(() => {
+    const concurrency = requestGate.stats();
+    const processes = services.processManager.stats();
+    console.log(JSON.stringify({ event: "server_heartbeat", serverInstanceId, processId: process.pid, startedAt, at: new Date().toISOString(), lastMcpRequestAt, mcpRequestCount, mcpAbortedRequestCount, mcpErrorResponseCount, activeMcpRequests: concurrency.active, queuedMcpRequests: concurrency.queued, managedProcesses: processes.running + processes.completedRetained, runningProcesses: processes.running }));
+  }, 60_000);
+  heartbeatInterval.unref();
+
   const close = async (): Promise<void> => {
     clearInterval(cleanupInterval);
+    clearInterval(heartbeatInterval);
+    console.log(JSON.stringify({ event: "server_lifecycle", phase: "stopping", serverInstanceId, processId: process.pid, at: new Date().toISOString() }));
     await mcpHandler.close();
     await services.processManager.shutdown();
     await new Promise<void>((resolve, reject) => {
@@ -347,6 +385,7 @@ export async function startHttpServer(
       });
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
+    console.log(JSON.stringify({ event: "server_lifecycle", phase: "stopped", serverInstanceId, processId: process.pid, at: new Date().toISOString() }));
   };
 
   return { httpServer, close };

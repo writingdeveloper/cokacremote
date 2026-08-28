@@ -30,6 +30,7 @@ export interface AppConfig {
   maxQueuedRequests: number;
   processYieldTimeMs: number;
   processPollWaitMs: number;
+  discoveryCacheTtlMs: number;
   maxFileChunkBytes: number;
   maxEditFileBytes: number;
   wakatimeEnabled: boolean;
@@ -249,6 +250,13 @@ export function loadConfig(
       "MCP_PROCESS_POLL_WAIT_MS",
       0,
       300_000,
+    ),
+    discoveryCacheTtlMs: parseInteger(
+      env.MCP_DISCOVERY_CACHE_TTL_MS,
+      300_000,
+      "MCP_DISCOVERY_CACHE_TTL_MS",
+      0,
+      7 * 24 * 60 * 60 * 1000,
     ),
     maxFileChunkBytes: parseInteger(
       env.MCP_MAX_FILE_CHUNK_BYTES,

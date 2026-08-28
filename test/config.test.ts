@@ -39,6 +39,17 @@ describe("loadConfig", () => {
     ).toThrow(/MCP_MAX_QUEUED_REQUESTS/);
   });
 
+  it("supports a long discovery cache TTL for stable connector registries", () => {
+    const config = loadConfig(
+      { MCP_AUTH_TOKEN: "secret", MCP_DISCOVERY_CACHE_TTL_MS: "86400000" },
+      testCwd,
+    );
+    expect(config.discoveryCacheTtlMs).toBe(86_400_000);
+    expect(() =>
+      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_DISCOVERY_CACHE_TTL_MS: "-1" }, testCwd),
+    ).toThrow(/MCP_DISCOVERY_CACHE_TTL_MS/);
+  });
+
   it("loads the documented ChatGPT Web runtime profile limits", () => {
     const profilePath = path.resolve("deploy/profiles/chatgpt-web.env.example");
     const env = Object.fromEntries(
@@ -63,6 +74,7 @@ describe("loadConfig", () => {
       maxQueuedRequests: 32,
       processYieldTimeMs: 30000,
       processPollWaitMs: 30000,
+      discoveryCacheTtlMs: 86400000,
       maxFileChunkBytes: 262144,
     });
   });

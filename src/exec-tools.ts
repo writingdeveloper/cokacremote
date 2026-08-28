@@ -9,6 +9,8 @@ import { runTool } from "./tool-result.js";
 import { TOOL_ANNOTATIONS, toolAuthMetadata } from "./tool-metadata.js";
 import type { WakaTimeTracker } from "./wakatime-tracker.js";
 
+const CLIENT_MAX_OUTPUT_BYTES = 1024 * 1024;
+
 function processResult(result: Awaited<ReturnType<ProcessManager["read"]>>): Record<string, unknown> {
   return {
     ...result,
@@ -59,9 +61,11 @@ export function registerExecTools(
     .number()
     .int()
     .min(16 * 1024)
-    .max(config.maxOutputBytes)
-    .default(config.maxOutputBytes)
-    .describe("Maximum retained process-output bytes included in this result.");
+    .max(CLIENT_MAX_OUTPUT_BYTES)
+    .optional()
+    .describe(
+      "Maximum retained process-output bytes requested for this result. The server may return fewer bytes according to its runtime response budget.",
+    );
   const outputModeSchema = z
     .enum(["compact", "streams", "metadata"])
     .default("compact")
@@ -80,11 +84,11 @@ export function registerExecTools(
               workdir: z
                 .string()
                 .optional()
-                .describe(`Working directory. Relative paths resolve from ${config.defaultCwd}.`),
+                .describe("Working directory. Relative paths resolve from the server configured default working directory."),
               shell: z
                 .string()
                 .optional()
-                .describe(`Shell executable. Defaults to ${config.defaultShell}.`),
+                .describe("Shell executable. Defaults to the server configured shell."),
               login: z
                 .boolean()
                 .default(true)
@@ -97,7 +101,7 @@ export function registerExecTools(
                 .int()
                 .min(0)
                 .max(30_000)
-                .default(config.processYieldTimeMs)
+                .optional()
                 .describe(
                   "How long to wait for the process to exit before returning its current state. Zero returns immediately. Longer waits reduce repeated browser polling/tool cards for ordinary commands.",
                 ),
@@ -133,7 +137,7 @@ export function registerExecTools(
           stdin,
         });
         wakatimeTracker.rememberProcess(sessionId, cwd, snapshot);
-        await processManager.waitForExit(sessionId, yieldTimeMs);
+        await processManager.waitForExit(sessionId, yieldTimeMs ?? config.processYieldTimeMs);
         const result = await processManager.read(sessionId, {
           maxOutputBytes,
           outputMode,
@@ -158,7 +162,7 @@ export function registerExecTools(
               workdir: z
                 .string()
                 .optional()
-                .describe(`Working directory. Relative paths resolve from ${config.defaultCwd}.`),
+                .describe("Working directory. Relative paths resolve from the server configured default working directory."),
               args: z.array(z.string()).default([]).describe("Arguments passed after the script path."),
               env: environmentSchema,
               interpreter: z
@@ -176,7 +180,7 @@ export function registerExecTools(
                 .int()
                 .min(0)
                 .max(30_000)
-                .default(config.processYieldTimeMs)
+                .optional()
                 .describe(
                   "How long to wait for the script process to exit before returning its current state. Zero returns immediately. Longer waits reduce repeated browser polling/tool cards for ordinary scripts.",
                 ),
@@ -220,7 +224,7 @@ export function registerExecTools(
           interpreterArgs,
           stdin,
           timeoutMs,
-          yieldTimeMs,
+          yieldTimeMs: yieldTimeMs ?? config.processYieldTimeMs,
           maxOutputBytes,
           outputMode,
           keepScript,
@@ -294,7 +298,7 @@ export function registerExecTools(
                 .int()
                 .min(0)
                 .max(300_000)
-                .default(config.processPollWaitMs)
+                .optional()
                 .describe(
                   "How long to wait for output newer than afterSeq or for process exit. Zero returns immediately. Prefer long-poll waits for browser clients instead of frequent polling.",
                 ),
@@ -308,7 +312,7 @@ export function registerExecTools(
       runTool(async () => {
         const result = await processManager.read(sessionId, {
           afterSeq,
-          waitMs,
+          waitMs: waitMs ?? config.processPollWaitMs,
           maxOutputBytes,
           outputMode,
         });

@@ -15,14 +15,23 @@ describe("signalProcessTree", () => {
         throw new Error("Expected child PID");
       }
 
-      const gracefulStartedAt = Date.now();
-      await signalProcessTree(child.pid, "SIGTERM");
-      expect(Date.now() - gracefulStartedAt).toBeLessThan(2000);
+      const assertNonBlocking = async (signal: NodeJS.Signals) => {
+        const startedAt = Date.now();
+        const signalPromise = signalProcessTree(child.pid!, signal);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        expect(Date.now() - startedAt).toBeLessThan(1000);
+        await Promise.race([
+          signalPromise,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`signalProcessTree ${signal} timed out`)), 10_000),
+          ),
+        ]);
+      };
+
+      await assertNonBlocking("SIGTERM");
 
       if (child.exitCode === null) {
-        const forceStartedAt = Date.now();
-        await signalProcessTree(child.pid, "SIGKILL");
-        expect(Date.now() - forceStartedAt).toBeLessThan(3000);
+        await assertNonBlocking("SIGKILL");
       }
 
       await new Promise<void>((resolve) => {

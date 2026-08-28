@@ -198,12 +198,23 @@ describe.sequential("all registered MCP tools", () => {
   });
 
   it("executes, polls, writes to, times out, lists, and terminates processes", async () => {
-    const completed = await callOk("exec_command", {
+    let completed = await callOk("exec_command", {
       cmd: "printf '%s\\n' \"$E2E_VALUE\"; pwd; printf 'stderr-ok' >&2; exit 7",
       workdir: testRoot,
       env: { E2E_VALUE: "env-ok" },
       yieldTimeMs: 3000,
     });
+    let completedOutput = String(completed.output ?? "");
+    const completionDeadline = Date.now() + 20_000;
+    while (completed.completed !== true && Date.now() < completionDeadline) {
+      const next = await callOk("read_process", {
+        sessionId: completed.sessionId,
+        afterSeq: completed.nextSeq,
+        waitMs: 5000,
+      });
+      completedOutput += String(next.output ?? "");
+      completed = { ...next, output: completedOutput };
+    }
     expect(completed).toMatchObject({ completed: true, exitCode: 7 });
     expect(completed).not.toHaveProperty("stdout");
     expect(completed).not.toHaveProperty("stderr");

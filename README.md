@@ -146,7 +146,7 @@ These annotations are advisory client metadata, not access control. They do not 
 
 ### MCP 2026 cache and long-running compatibility
 
-For MCP 2026-07-28 clients, `server/discover` and `tools/list` carry the SDK-supported private cache hint `ttlMs=300000` / `cacheScope=private`. Legacy 2025-era responses are unchanged by these hints.
+For MCP 2026-07-28 clients, `server/discover` and `tools/list` carry an SDK-supported private cache hint controlled by `MCP_DISCOVERY_CACHE_TTL_MS` (default `300000`). The ChatGPT Web profile raises this to 24 hours (`86400000`) so a stable tool inventory is not needlessly expired every five minutes. Legacy 2025-era responses are unchanged by these hints.
 
 The installed MCP SDK 2.0.0 exposes the 2026 task method schemas but does not expose a server-side task store/manager runtime through `McpServer` or `createMcpHandler`. Its legacy `capabilities.tasks` and tool `execution.taskSupport` vocabulary is explicitly removed from the 2026 wire codec. `cokacremote` therefore does not advertise invented task capabilities. Long-running commands continue to use the existing in-memory process-session contract: `exec_command` or `run_script` returns a `sessionId`, then `read_process`, `write_stdin`, and `terminate_process` operate on that same process session.
 
@@ -165,15 +165,20 @@ MCP_MAX_QUEUED_REQUESTS=32
 MCP_PROCESS_YIELD_TIME_MS=30000
 MCP_PROCESS_POLL_WAIT_MS=30000
 MCP_MAX_FILE_CHUNK_BYTES=262144
+MCP_DISCOVERY_CACHE_TTL_MS=86400000
 ```
 
-These are deployment recommendations, not global defaults. They keep individual process responses at 128 KiB, retain up to 1 MiB per process for later polling, expire completed sessions after 15 minutes, cap retained process sessions at 32, bound concurrent MCP requests/processes, wait up to 30 seconds for ordinary commands, long-poll process reads for 30 seconds, and use 256 KiB file-transfer pages. This reduces browser memory and transport amplification without discarding output that is still inside the retained-output budget.
+These are deployment recommendations, not global defaults. They keep individual process responses at 128 KiB, retain up to 1 MiB per process for later polling, expire completed sessions after 15 minutes, cap retained process sessions at 32, bound concurrent MCP requests/processes, wait up to 30 seconds for ordinary commands, long-poll process reads for 30 seconds, use 256 KiB file-transfer pages, and keep a stable MCP 2026 tool manifest fresh for 24 hours. This reduces browser memory, transport amplification, and avoidable tool-registry churn without discarding output that is still inside the retained-output budget.
 
 Process tools default to `outputMode=compact`, which returns one canonical interleaved `output` string. Use `outputMode=streams` only when separate `stdout` and `stderr` are required, or `outputMode=metadata` when only lifecycle/counter state is needed.
 
 ChatGPT Web renders each MCP call as a separate tool card; the server cannot hide those UI cards. The browser profile reduces card churn by waiting longer inside the first command call and using long-poll reads. Agents should also batch related shell/read operations into one command when practical.
 
 Process output is cursor-paginated: pass the previous `nextSeq` as `afterSeq` until `hasMore=false`. File reads and downloads similarly continue from `nextOffset`. Smaller pages are safer for browser MCP clients because they bound each JSON response while preserving resumability; lowering a page size does not itself discard retained process output.
+
+`/health` also exposes a `serverInstanceId`, process ID/start time, last MCP request time, request/abort/error counters, and registered tool count. Runtime logs emit structured `server_lifecycle`, `server_heartbeat`, and `mcp_request` records. MCP request records include the protocol version and `Mcp-Session-Id` when a client sends them; stateless clients are expected to omit a session ID. Internal MCP handler/transport errors include the JavaScript stack when available. These fields are intended to distinguish an actual server/transport restart from client-side connector registry or schema-injection churn.
+
+The client-facing tool schemas are intentionally deployment-stable across ChatGPT Web runtime budget profiles. `maxOutputBytes` and file-chunk requests advertise stable 1 MiB client maxima, while the active server clamps the returned bytes to its configured runtime budget. Timing defaults are likewise applied inside the tool handler rather than embedded as profile-specific JSON Schema defaults. This prevents a cached ChatGPT tool manifest from disagreeing with a newly restarted server that uses a different response budget.
 
 ## Requirements
 
@@ -517,6 +522,6 @@ Use a unique `-TaskPrefix` for canaries or tests. Deployment-specific OAuth keys
 
 ### MCP 2026 cache and task compatibility
 
-With `@modelcontextprotocol/server` 2.0.0, cokacremote serves MCP 2026-07-28 `server/discover` and `tools/list` results with the SDK-supported five-minute private cache hint (`ttlMs: 300000`, `cacheScope: private`). Integration tests assert those wire fields so future SDK upgrades cannot silently drop the browser-facing cache behavior.
+With `@modelcontextprotocol/server` 2.0.0, cokacremote serves MCP 2026-07-28 `server/discover` and `tools/list` results with an SDK-supported configurable private cache hint (`MCP_DISCOVERY_CACHE_TTL_MS`, `cacheScope: private`). The generic default remains five minutes; the ChatGPT Web deployment profile uses 24 hours for a stable inventory. Integration tests assert those wire fields so future SDK upgrades cannot silently drop the browser-facing cache behavior.
 
 The same SDK release exports the older task wire types (`Task`, `GetTaskRequest`, `ListTasksRequest`, and related types), but its public declarations explicitly mark them as deprecated 2025-11-25 vocabulary **with no SDK runtime** and exclude `tasks/get`, `tasks/result`, `tasks/list`, and `tasks/cancel` from the typed request-handler surface. cokacremote therefore does not invent custom task methods or advertise a task capability that the installed SDK cannot serve correctly. Long-running work continues to use the existing `ProcessManager` session IDs through `exec_command`/`run_script`, `read_process`, and `terminate_process`. Revisit a native task adapter only when the installed MCP SDK exposes a supported task runtime.

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { loadConfig, type AppConfig } from "../src/config.js";
 import { startHttpServer, type RunningHttpServer } from "../src/http-server.js";
-import { createServices, type McpServices } from "../src/mcp-server.js";
+import { createServices, REGISTERED_TOOL_COUNT, type McpServices } from "../src/mcp-server.js";
 import { testBash } from "./helpers/cross-platform-command.js";
 
 interface JsonRpcResponse {
@@ -33,6 +33,7 @@ describe("remote development MCP server", () => {
         MCP_DEFAULT_CWD: temporaryDirectory,
         MCP_MAX_FILE_CHUNK_BYTES: "65536",
         MCP_DEFAULT_SHELL: testBash(),
+        MCP_DISCOVERY_CACHE_TTL_MS: "86400000",
       },
       temporaryDirectory,
     );
@@ -125,11 +126,11 @@ describe("remote development MCP server", () => {
     expect(payload.result?.supportedVersions).toContain("2026-07-28");
     expect(payload.result?.capabilities).toHaveProperty("tools");
     expect(payload.result?.capabilities).not.toHaveProperty("tasks");
-    expect(payload.result?.ttlMs).toBe(300_000);
+    expect(payload.result?.ttlMs).toBe(86_400_000);
     expect(payload.result?.cacheScope).toBe("private");
   });
 
-  it("emits private five-minute cache hints on modern tools/list without legacy task metadata", async () => {
+  it("emits the configured private cache hint on modern tools/list without legacy task metadata", async () => {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
@@ -166,7 +167,7 @@ describe("remote development MCP server", () => {
     };
     expect(payload.result?.tools?.length).toBeGreaterThan(0);
     expect(payload.result?.tools?.every((tool) => tool.execution?.taskSupport === undefined)).toBe(true);
-    expect(payload.result?.ttlMs).toBe(300_000);
+    expect(payload.result?.ttlMs).toBe(86_400_000);
     expect(payload.result?.cacheScope).toBe("private");
   });
 
@@ -185,6 +186,7 @@ describe("remote development MCP server", () => {
         version: "0.1.0",
       });
       const tools = await client.listTools();
+      expect(tools.tools).toHaveLength(REGISTERED_TOOL_COUNT);
       expect(tools.tools.map((tool) => tool.name)).toEqual(
         expect.arrayContaining([
           "exec_command",
@@ -435,6 +437,14 @@ describe("remote development MCP server", () => {
       transportMode: "stateless-json",
       activeMcpSessions: 0,
       activeMcpRequests: 0,
+      serverInstanceId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      processId: process.pid,
+      startedAt: expect.any(String),
+      lastMcpRequestAt: expect.any(String),
+      mcpRequestCount: expect.any(Number),
+      mcpAbortedRequestCount: 0,
+      mcpErrorResponseCount: expect.any(Number),
+      registeredToolCount: REGISTERED_TOOL_COUNT,
       managedProcesses: expect.any(Number),
       processes: {
         running: expect.any(Number),

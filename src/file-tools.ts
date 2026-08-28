@@ -6,6 +6,8 @@ import { FileService } from "./file-service.js";
 import { runTool } from "./tool-result.js";
 import { TOOL_ANNOTATIONS, toolAuthMetadata } from "./tool-metadata.js";
 
+const CLIENT_MAX_FILE_CHUNK_BYTES = 1024 * 1024;
+
 const cwdSchema = z
   .string()
   .optional()
@@ -120,8 +122,8 @@ export function registerFileTools(
                 .number()
                 .int()
                 .min(1)
-                .max(config.maxFileChunkBytes)
-                .default(Math.min(256 * 1024, config.maxFileChunkBytes))
+                .max(CLIENT_MAX_FILE_CHUNK_BYTES)
+                .optional()
                 .describe(
                   "Maximum raw bytes requested. UTF-8 mode may adjust the returned size at a character boundary.",
                 ),
@@ -134,7 +136,15 @@ export function registerFileTools(
       _meta: authMetadata,
     },
     async ({ path, cwd, offset, maxBytes, encoding }) =>
-      runTool(() => files.readFileChunk(path, cwd, offset, maxBytes, encoding)),
+      runTool(() =>
+        files.readFileChunk(
+          path,
+          cwd,
+          offset,
+          maxBytes ?? Math.min(256 * 1024, config.maxFileChunkBytes),
+          encoding,
+        ),
+      ),
   );
 
   server.registerTool(
@@ -313,15 +323,24 @@ export function registerFileTools(
                 .number()
                 .int()
                 .min(1)
-                .max(config.maxFileChunkBytes)
-                .default(config.maxFileChunkBytes)
-                .describe("Maximum raw file bytes encoded into this base64 chunk."),
+                .max(CLIENT_MAX_FILE_CHUNK_BYTES)
+                .optional()
+                .describe(
+                  "Maximum raw file bytes requested for this base64 chunk. The server may return fewer bytes according to its runtime chunk budget.",
+                ),
             }),
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
     async ({ path, cwd, offset, maxBytes }) =>
-      runTool(() => files.downloadChunk(path, cwd, offset, maxBytes)),
+      runTool(() =>
+        files.downloadChunk(
+          path,
+          cwd,
+          offset,
+          maxBytes ?? Math.min(CLIENT_MAX_FILE_CHUNK_BYTES, config.maxFileChunkBytes),
+        ),
+      ),
   );
 
   server.registerTool(
