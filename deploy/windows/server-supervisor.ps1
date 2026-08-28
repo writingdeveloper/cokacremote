@@ -13,7 +13,7 @@ function Clear-CokacEnvFileOverrides {
     param([string]$Path)
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return }
     foreach ($line in Get-Content -LiteralPath $Path) {
-        if ($line -match '^s*(?:exports+)?([A-Za-z_][A-Za-z0-9_]*)s*=') {
+        if ($line -match '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=') {
             [Environment]::SetEnvironmentVariable($matches[1], $null, 'Process')
         }
     }

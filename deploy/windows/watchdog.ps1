@@ -56,6 +56,14 @@ if ($healthy) {
             Write-CokacRuntimeLog $config ("watchdog recycling unhealthy node PID " + $node.ProcessId)
             Stop-Process -Id $node.ProcessId -Force -ErrorAction SilentlyContinue
         }
+        try {
+            Write-CokacRuntimeLog $config ("watchdog restarting server task after unhealthy recycle")
+            Stop-ScheduledTask -TaskName $TaskPrefix -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 250
+            Start-ScheduledTask -TaskName $TaskPrefix -ErrorAction Stop
+        } catch {
+            Write-CokacRuntimeLog $config ("watchdog server task recycle error: " + $_.Exception.Message)
+        }
         Remove-Item -LiteralPath $failPath -Force -ErrorAction SilentlyContinue
     }
 }

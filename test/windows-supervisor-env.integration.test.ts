@@ -20,7 +20,7 @@ describe.runIf(process.platform === "win32")("Windows server supervisor environm
       `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ endpoint: process.env.MCP_ENDPOINT }));\nsetInterval(() => {}, 1000);\n`,
       "utf8",
     );
-    writeFileSync(envPath, "MCP_ENDPOINT=/mcp\n", "utf8");
+    writeFileSync(envPath, "  MCP_ENDPOINT = /mcp\n", "utf8");
     writeFileSync(
       configPath,
       [
