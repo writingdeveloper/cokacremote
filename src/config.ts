@@ -17,6 +17,7 @@ export interface AppConfig {
   oauthStateFile: string;
   oauthAccessTokenTtlSeconds: number;
   oauthRefreshTokenTtlSeconds: number;
+  oauthRefreshReplayGraceMs: number;
   oauthAuthorizationCodeTtlSeconds: number;
   defaultCwd: string;
   defaultShell: string;
@@ -184,6 +185,13 @@ export function loadConfig(
       30 * 24 * 60 * 60,
       "MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS",
       3600,
+    ),
+    oauthRefreshReplayGraceMs: parseInteger(
+      env.MCP_OAUTH_REFRESH_REPLAY_GRACE_MS,
+      10_000,
+      "MCP_OAUTH_REFRESH_REPLAY_GRACE_MS",
+      0,
+      5 * 60 * 1000,
     ),
     oauthAuthorizationCodeTtlSeconds: parseInteger(
       env.MCP_OAUTH_AUTHORIZATION_CODE_TTL_SECONDS,

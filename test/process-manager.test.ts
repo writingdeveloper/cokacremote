@@ -182,6 +182,38 @@ describe("ProcessManager", () => {
     expect((await manager.read(replacement)).output).toContain("replacement");
   });
 
+  it("reconciles a root PID that disappeared before child close bookkeeping", async () => {
+    manager = new ProcessManager({
+      maxRetainedOutputBytes: 1024 * 1024,
+      processRetentionMs: 60_000,
+      maxProcesses: 16,
+      maxConcurrentProcesses: 1,
+      defaultMaxOutputBytes: 1024 * 1024,
+    });
+    const sessionId = manager.start({
+      ...nodeCommand('process.stdout.write("ready\n"); setTimeout(() => {}, 10_000)'),
+      cwd: process.cwd(),
+    });
+    const ready = await manager.read(sessionId, { waitMs: 1000 });
+    expect(ready.running).toBe(true);
+    expect(ready.pid).toBeTypeOf("number");
+
+    try {
+      process.kill(ready.pid!, "SIGKILL");
+    } catch (error) {
+      expect((error as NodeJS.ErrnoException).code).toBe("ESRCH");
+    }
+
+    expect(manager.stats().running).toBe(0);
+    expect(manager.stats().runningCapacity).toBe(1);
+    const replacement = manager.start({
+      ...nodeCommand('process.stdout.write("replacement")'),
+      cwd: process.cwd(),
+    });
+    await manager.waitForExit(replacement, 2000);
+    expect((await manager.read(replacement)).output).toContain("replacement");
+  });
+
   it("filters process lists without mutating retained sessions", async () => {
     manager = createManager();
     const completedId = manager.start({

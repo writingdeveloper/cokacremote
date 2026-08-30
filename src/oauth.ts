@@ -21,6 +21,7 @@ interface StoredToken {
   expiresAt: number;
   resource: string;
   grantId?: string;
+  usedAt?: number;
 }
 
 interface PersistedOAuthState {
@@ -148,6 +149,7 @@ function isStoredToken(value: unknown): value is StoredToken {
     typeof token.expiresAt === "number" &&
     typeof token.resource === "string" &&
     (token.grantId === undefined || typeof token.grantId === "string") &&
+    (token.usedAt === undefined || typeof token.usedAt === "number") &&
     (token.type !== "used_refresh" || typeof token.grantId === "string")
   );
 }
@@ -178,6 +180,7 @@ class PersistentOAuthStore implements OAuthRegisteredClientsStore {
     private readonly stateFile: string,
     private readonly accessTokenTtlSeconds: number,
     private readonly refreshTokenTtlSeconds: number,
+    private readonly refreshReplayGraceMs: number,
   ) {}
 
   private async ensureLoaded(): Promise<void> {
@@ -368,7 +371,12 @@ class PersistentOAuthStore implements OAuthRegisteredClientsStore {
         return { status: "invalid" };
       }
       if (current.type === "used_refresh") {
-        this.revokeGrantWithoutPersist(current.grantId!, true);
+        const replayAgeMs = current.usedAt === undefined
+          ? Number.POSITIVE_INFINITY
+          : Math.max(0, Date.now() - current.usedAt);
+        if (replayAgeMs > this.refreshReplayGraceMs) {
+          this.revokeGrantWithoutPersist(current.grantId!, true);
+        }
         return { status: "invalid" };
       }
       if (current.type !== "refresh") {
@@ -379,7 +387,12 @@ class PersistentOAuthStore implements OAuthRegisteredClientsStore {
         return { status: "invalid_scope" };
       }
       const grantId = current.grantId ?? randomUUID();
-      this.state.tokens[hash] = { ...current, type: "used_refresh", grantId };
+      this.state.tokens[hash] = {
+        ...current,
+        type: "used_refresh",
+        grantId,
+        usedAt: Date.now(),
+      };
       return {
         status: "ok",
         tokens: this.issueTokenPairWithoutPersist(clientId, scopes, resource, grantId),
@@ -508,6 +521,7 @@ export class RemoteDevOAuthProvider implements OAuthServerProvider {
       config.oauthStateFile,
       config.oauthAccessTokenTtlSeconds,
       config.oauthRefreshTokenTtlSeconds,
+      config.oauthRefreshReplayGraceMs,
     );
   }
 

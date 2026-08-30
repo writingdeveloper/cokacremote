@@ -9,6 +9,15 @@ import { signalProcessTree } from "./process-tree.js";
 const OUTPUT_CHUNK_BYTES = 16 * 1024;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
+function processAppearsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
 export type ProcessOutputStream = "stdout" | "stderr";
 
 interface OutputChunk {
@@ -24,6 +33,7 @@ interface ManagedProcess {
   cwd: string;
   startedAt: number;
   endedAt: number | undefined;
+  rootExitedAt: number | undefined;
   exitCode: number | null | undefined;
   signal: NodeJS.Signals | null | undefined;
   error: string | undefined;
@@ -214,7 +224,7 @@ export class ProcessManager {
     const maxConcurrentProcesses =
       this.#options.maxConcurrentProcesses ?? this.#options.maxProcesses;
     const runningProcesses = [...this.#processes.values()].filter((managed) =>
-      this.#isRunning(managed),
+      this.#occupiesRunningSlot(managed),
     ).length;
     if (runningProcesses >= maxConcurrentProcesses) {
       throw new BusyError(
@@ -238,6 +248,7 @@ export class ProcessManager {
       cwd: request.cwd,
       startedAt: Date.now(),
       endedAt: undefined,
+      rootExitedAt: undefined,
       exitCode: undefined,
       signal: undefined,
       error: undefined,
@@ -268,6 +279,9 @@ export class ProcessManager {
     child.on("error", (error) => {
       managed.error = errorMessage(error);
       this.#finish(managed, null, null);
+    });
+    child.on("exit", (code, signal) => {
+      this.#markRootExited(managed, code, signal);
     });
     child.on("close", (code, signal) => {
       this.#finish(managed, code, signal);
@@ -528,7 +542,7 @@ export class ProcessManager {
     let retainedOutputBytes = 0;
     let droppedOutputBytes = 0;
     for (const managed of this.#processes.values()) {
-      if (this.#isRunning(managed)) {
+      if (this.#occupiesRunningSlot(managed)) {
         running += 1;
       } else {
         completedRetained += 1;
@@ -556,7 +570,9 @@ export class ProcessManager {
   prune(): void {
     const cutoff = Date.now() - this.#options.processRetentionMs;
     for (const managed of this.#processes.values()) {
-      if (managed.endedAt !== undefined && managed.endedAt < cutoff) {
+      this.#occupiesRunningSlot(managed);
+      const completedAt = managed.endedAt ?? managed.rootExitedAt;
+      if (completedAt !== undefined && completedAt < cutoff) {
         this.#forget(managed);
       }
     }
@@ -564,13 +580,13 @@ export class ProcessManager {
 
   async shutdown(): Promise<void> {
     const running = [...this.#processes.values()].filter((managed) =>
-      this.#isRunning(managed),
+      this.#occupiesRunningSlot(managed),
     );
     await Promise.all(running.map((managed) => this.#signal(managed, "SIGTERM")));
     await new Promise((resolve) => setTimeout(resolve, running.length > 0 ? 500 : 0));
     await Promise.all(
       running
-        .filter((managed) => this.#isRunning(managed))
+        .filter((managed) => this.#occupiesRunningSlot(managed))
         .map((managed) => this.#signal(managed, "SIGKILL")),
     );
   }
@@ -580,8 +596,12 @@ export class ProcessManager {
       return;
     }
     const completed = [...this.#processes.values()]
-      .filter((managed) => managed.endedAt !== undefined)
-      .sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0));
+      .filter((managed) => !this.#occupiesRunningSlot(managed))
+      .sort(
+        (a, b) =>
+          (a.endedAt ?? a.rootExitedAt ?? 0) -
+          (b.endedAt ?? b.rootExitedAt ?? 0),
+      );
     while (
       this.#processes.size >= this.#options.maxProcesses &&
       completed.length > 0
@@ -664,6 +684,24 @@ export class ProcessManager {
     this.#notify(managed);
   }
 
+  #markRootExited(
+    managed: ManagedProcess,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    managed.rootExitedAt ??= Date.now();
+    if (code !== null || managed.exitCode === undefined) {
+      managed.exitCode = code;
+    }
+    if (signal !== null || managed.signal === undefined) {
+      managed.signal = signal;
+    }
+    if (managed.timeoutHandle) {
+      clearTimeout(managed.timeoutHandle);
+      managed.timeoutHandle = undefined;
+    }
+  }
+
   #finish(
     managed: ManagedProcess,
     code: number | null,
@@ -672,10 +710,9 @@ export class ProcessManager {
     if (managed.endedAt !== undefined) {
       return;
     }
+    this.#markRootExited(managed, code, signal);
     this.#flushPendingOutput(managed);
     managed.endedAt = Date.now();
-    managed.exitCode = code;
-    managed.signal = signal;
     if (managed.timeoutHandle) {
       clearTimeout(managed.timeoutHandle);
       managed.timeoutHandle = undefined;
@@ -766,6 +803,27 @@ export class ProcessManager {
 
   #isRunning(managed: ManagedProcess): boolean {
     return managed.endedAt === undefined;
+  }
+
+  #occupiesRunningSlot(managed: ManagedProcess): boolean {
+    if (managed.endedAt !== undefined || managed.rootExitedAt !== undefined) {
+      return false;
+    }
+    const pid = managed.child.pid;
+    if (
+      managed.child.exitCode !== null ||
+      managed.child.signalCode !== null ||
+      pid === undefined ||
+      !processAppearsAlive(pid)
+    ) {
+      this.#markRootExited(
+        managed,
+        managed.child.exitCode,
+        managed.child.signalCode,
+      );
+      return false;
+    }
+    return true;
   }
 
   async #signal(managed: ManagedProcess, signal: NodeJS.Signals): Promise<void> {

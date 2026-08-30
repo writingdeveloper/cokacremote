@@ -286,7 +286,7 @@ describe("OAuth 2.1 MCP authorization", () => {
     expect(replayedRefresh.status).toBe(400);
     expect(await replayedRefresh.json()).toMatchObject({ error: "invalid_grant" });
 
-    const revokedSuccessor = await fetch(`${baseUrl}/token`, {
+    const successorRefresh = await fetch(`${baseUrl}/token`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: form({
@@ -296,20 +296,23 @@ describe("OAuth 2.1 MCP authorization", () => {
         resource: resourceUrl,
       }),
     });
-    expect(revokedSuccessor.status).toBe(400);
-    expect(await revokedSuccessor.json()).toMatchObject({ error: "invalid_grant" });
+    expect(successorRefresh.status).toBe(200);
+    const successorTokens = (await successorRefresh.json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
 
     const revokeResponse = await fetch(`${baseUrl}/revoke`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: form({ client_id: registered.client_id, token: refreshed.access_token }),
+      body: form({ client_id: registered.client_id, token: successorTokens.access_token }),
     });
     expect(revokeResponse.status).toBe(200);
 
     const revokedRequest = await fetch(resourceUrl, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${refreshed.access_token}`,
+        authorization: `Bearer ${successorTokens.access_token}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "initialize", params: {} }),

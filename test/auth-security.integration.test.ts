@@ -84,6 +84,68 @@ describe("OAuth endpoint security boundaries", () => {
     }
   });
 
+  it("revokes the successor grant when a used refresh token is replayed outside the grace window", async () => {
+    const temporaryDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "cokacremote-oauth-stale-replay-test-"),
+    );
+    const resource = "http://127.0.0.1:34567/mcp";
+    const provider = new RemoteDevOAuthProvider(
+      loadConfig(
+        {
+          MCP_OAUTH_ENABLED: "true",
+          MCP_OAUTH_APPROVAL_KEY: "oauth-approval-key",
+          MCP_PUBLIC_URL: "http://127.0.0.1:34567",
+          MCP_OAUTH_STATE_FILE: path.join(temporaryDirectory, "state.json"),
+          MCP_OAUTH_REFRESH_REPLAY_GRACE_MS: "1",
+        },
+        temporaryDirectory,
+      ),
+    );
+    try {
+      const client = await provider.clientsStore.registerClient({
+        redirect_uris: ["https://chatgpt.com/connector/oauth/stale-replay-test"],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        client_name: "stale replay test",
+        scope: "mcp:tools",
+      });
+      const first = await provider.clientsStore.issueTokenPair(
+        client.client_id,
+        ["mcp:tools"],
+        resource,
+      );
+      const rotated = await provider.clientsStore.rotateRefreshToken(
+        first.refresh_token!,
+        client.client_id,
+        resource,
+        undefined,
+      );
+      expect(rotated.status).toBe("ok");
+      if (rotated.status !== "ok") throw new Error("rotation failed");
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await expect(
+        provider.clientsStore.rotateRefreshToken(
+          first.refresh_token!,
+          client.client_id,
+          resource,
+          undefined,
+        ),
+      ).resolves.toMatchObject({ status: "invalid" });
+      await expect(
+        provider.clientsStore.rotateRefreshToken(
+          rotated.tokens.refresh_token!,
+          client.client_id,
+          resource,
+          undefined,
+        ),
+      ).resolves.toMatchObject({ status: "invalid" });
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("rolls back failed state writes and revokes an entire token grant", async () => {
     const temporaryDirectory = await mkdtemp(
       path.join(os.tmpdir(), "cokacremote-oauth-store-test-"),

@@ -17,6 +17,7 @@ describe("loadConfig", () => {
         MCP_MAX_QUEUED_REQUESTS: "7",
         MCP_PROCESS_YIELD_TIME_MS: "25000",
         MCP_PROCESS_POLL_WAIT_MS: "20000",
+        MCP_OAUTH_REFRESH_REPLAY_GRACE_MS: "10000",
       },
       testCwd,
     );
@@ -27,6 +28,7 @@ describe("loadConfig", () => {
       maxQueuedRequests: 7,
       processYieldTimeMs: 25000,
       processPollWaitMs: 20000,
+      oauthRefreshReplayGraceMs: 10000,
     });
     expect(() =>
       loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_MAX_CONCURRENT_TOOL_CALLS: "0" }, testCwd),
@@ -68,13 +70,14 @@ describe("loadConfig", () => {
       maxOutputBytes: 131072,
       maxRetainedProcessOutputBytes: 1048576,
       processRetentionMs: 900000,
-      maxProcesses: 32,
+      maxProcesses: 64,
       maxConcurrentToolCalls: 8,
-      maxConcurrentProcesses: 8,
+      maxConcurrentProcesses: 16,
       maxQueuedRequests: 32,
       processYieldTimeMs: 30000,
       processPollWaitMs: 30000,
       discoveryCacheTtlMs: 86400000,
+      oauthRefreshReplayGraceMs: 10000,
       maxFileChunkBytes: 262144,
     });
   });

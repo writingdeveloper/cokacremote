@@ -158,17 +158,18 @@ For heavy browser-based MCP use, start from your normal deployment environment a
 MCP_MAX_OUTPUT_BYTES=131072
 MCP_MAX_RETAINED_PROCESS_OUTPUT_BYTES=1048576
 MCP_PROCESS_RETENTION_MS=900000
-MCP_MAX_PROCESSES=32
+MCP_MAX_PROCESSES=64
 MCP_MAX_CONCURRENT_TOOL_CALLS=8
-MCP_MAX_CONCURRENT_PROCESSES=8
+MCP_MAX_CONCURRENT_PROCESSES=16
 MCP_MAX_QUEUED_REQUESTS=32
 MCP_PROCESS_YIELD_TIME_MS=30000
 MCP_PROCESS_POLL_WAIT_MS=30000
 MCP_MAX_FILE_CHUNK_BYTES=262144
 MCP_DISCOVERY_CACHE_TTL_MS=86400000
+MCP_OAUTH_REFRESH_REPLAY_GRACE_MS=10000
 ```
 
-These are deployment recommendations, not global defaults. They keep individual process responses at 128 KiB, retain up to 1 MiB per process for later polling, expire completed sessions after 15 minutes, cap retained process sessions at 32, bound concurrent MCP requests/processes, wait up to 30 seconds for ordinary commands, long-poll process reads for 30 seconds, use 256 KiB file-transfer pages, and keep a stable MCP 2026 tool manifest fresh for 24 hours. This reduces browser memory, transport amplification, and avoidable tool-registry churn without discarding output that is still inside the retained-output budget.
+These are deployment recommendations, not global defaults. They keep individual process responses at 128 KiB, retain up to 1 MiB per process for later polling, expire completed sessions after 15 minutes, retain up to 64 managed process sessions, allow up to 16 concurrent managed processes while keeping MCP request concurrency at 8, wait up to 30 seconds for ordinary commands, long-poll process reads for 30 seconds, use 256 KiB file-transfer pages, and keep a stable MCP 2026 tool manifest fresh for 24 hours. This reduces browser memory, transport amplification, and avoidable tool-registry churn without discarding output that is still inside the retained-output budget.
 
 Process tools default to `outputMode=compact`, which returns one canonical interleaved `output` string. Use `outputMode=streams` only when separate `stdout` and `stderr` are required, or `outputMode=metadata` when only lifecycle/counter state is needed.
 
@@ -441,6 +442,7 @@ MCP_WAKATIME_TRACK_SHELL_CHANGES=true
 | `MCP_OAUTH_STATE_FILE` | inside working directory | Stores registered clients and token hashes |
 | `MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` | OAuth access token lifetime |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | OAuth refresh token lifetime |
+| `MCP_OAUTH_REFRESH_REPLAY_GRACE_MS` | `10000` | Grace window where a just-used refresh token is rejected without revoking its already-issued successor grant |
 | `MCP_OAUTH_AUTHORIZATION_CODE_TTL_SECONDS` | `300` | One-time authorization code lifetime |
 | `MCP_WAKATIME_ENABLED` | `false` | Enable ChatGPT-attributed WakaTime heartbeats |
 | `MCP_WAKATIME_CLI` | none | Path to the WakaTime CLI executable |
