@@ -34,6 +34,24 @@ function Register-CokacTask {
     Register-ScheduledTask -TaskName $Name -Action $action -Trigger $Trigger -Settings $Settings -Description ("cokacremote managed task: " + $Name) -Force | Out-Null
 }
 
+
+function Register-CokacWindowlessTask {
+    param(
+        [string]$Name,
+        [string]$ScriptPath,
+        [string[]]$ScriptArgs,
+        [object]$Trigger,
+        [object]$Settings
+    )
+    $launcher = Join-Path $PSScriptRoot "hidden-powershell.vbs"
+    $launcherArguments = @('"' + $launcher + '"', '"' + $ScriptPath + '"', '"' + $configPathResolved + '"')
+    foreach ($arg in $ScriptArgs) {
+        $launcherArguments += '"' + ($arg -replace '"', '\\"') + '"'
+    }
+    $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\wscript.exe" -Argument ('//B //Nologo ' + ($launcherArguments -join ' '))
+    Register-ScheduledTask -TaskName $Name -Action $action -Trigger $Trigger -Settings $Settings -Description ("cokacremote managed windowless task: " + $Name) -Force | Out-Null
+}
+
 $logon = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
 Register-CokacTask -Name $TaskPrefix -ScriptPath (Join-Path $PSScriptRoot "server-supervisor.ps1") -ExtraArgs "" -Trigger $logon -Settings (New-SupervisorSettings)
 if ($tunnelEnabled) {
@@ -53,10 +71,10 @@ $watchdogSettings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 1) `
     -MultipleInstances IgnoreNew
-Register-CokacTask `
+Register-CokacWindowlessTask `
     -Name "$TaskPrefix-watchdog" `
     -ScriptPath (Join-Path $PSScriptRoot "watchdog.ps1") `
-    -ExtraArgs (' -TaskPrefix "' + $TaskPrefix + '"') `
+    -ScriptArgs @("-TaskPrefix", $TaskPrefix) `
     -Trigger $watchdogTrigger `
     -Settings $watchdogSettings
 

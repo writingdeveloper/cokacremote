@@ -18,6 +18,7 @@ const deployRoot = path.resolve("deploy/windows");
 
 describe.runIf(process.platform === "win32")("portable Windows deployment", () => {
   it("ships every runtime script and parses them with the PowerShell AST parser", () => {
+    expect(existsSync(path.join(deployRoot, "hidden-powershell.vbs"))).toBe(true);
     for (const script of scripts) {
       const scriptPath = path.join(deployRoot, script);
       expect(existsSync(scriptPath), script).toBe(true);
@@ -77,11 +78,22 @@ describe.runIf(process.platform === "win32")("portable Windows deployment", () =
         [
           "-NoProfile",
           "-Command",
-          `$server=Get-ScheduledTask -TaskName '${escapedPrefix}';$watchdog=Get-ScheduledTask -TaskName '${escapedPrefix}-watchdog';[pscustomobject]@{serverMultiple=[string]$server.Settings.MultipleInstances;serverLimit=[string]$server.Settings.ExecutionTimeLimit;serverStartWhenAvailable=$server.Settings.StartWhenAvailable;serverDisallowBattery=$server.Settings.DisallowStartIfOnBatteries;serverStopBattery=$server.Settings.StopIfGoingOnBatteries;serverRestartCount=$server.Settings.RestartCount;watchdogInterval=[string]$watchdog.Triggers[0].Repetition.Interval}|ConvertTo-Json -Compress`,
+          `$server=Get-ScheduledTask -TaskName '${escapedPrefix}';$watchdog=Get-ScheduledTask -TaskName '${escapedPrefix}-watchdog';[pscustomobject]@{serverMultiple=[string]$server.Settings.MultipleInstances;serverLimit=[string]$server.Settings.ExecutionTimeLimit;serverStartWhenAvailable=$server.Settings.StartWhenAvailable;serverDisallowBattery=$server.Settings.DisallowStartIfOnBatteries;serverStopBattery=$server.Settings.StopIfGoingOnBatteries;serverRestartCount=$server.Settings.RestartCount;watchdogInterval=[string]$watchdog.Triggers[0].Repetition.Interval;watchdogExecute=[string]$watchdog.Actions[0].Execute;watchdogArguments=[string]$watchdog.Actions[0].Arguments}|ConvertTo-Json -Compress`,
         ],
         { encoding: "utf8", windowsHide: true },
       );
-      expect(JSON.parse(settingsJson)).toMatchObject({
+      const settings = JSON.parse(settingsJson) as {
+        serverMultiple: string;
+        serverLimit: string;
+        serverStartWhenAvailable: boolean;
+        serverDisallowBattery: boolean;
+        serverStopBattery: boolean;
+        serverRestartCount: number;
+        watchdogInterval: string;
+        watchdogExecute: string;
+        watchdogArguments: string;
+      };
+      expect(settings).toMatchObject({
         serverMultiple: "IgnoreNew",
         serverLimit: "PT0S",
         serverStartWhenAvailable: true,
@@ -90,6 +102,11 @@ describe.runIf(process.platform === "win32")("portable Windows deployment", () =
         serverRestartCount: 999,
         watchdogInterval: "PT1M",
       });
+      expect(settings.watchdogExecute).toMatch(/wscript\.exe$/i);
+      expect(settings.watchdogArguments).toContain("hidden-powershell.vbs");
+      expect(settings.watchdogArguments).toContain("watchdog.ps1");
+      expect(settings.watchdogArguments).toContain("-TaskPrefix");
+      expect(settings.watchdogArguments).toContain(prefix);
     } finally {
       ps(uninstallPath, ["-TaskPrefix", prefix]);
       const escapedPrefix = prefix.replaceAll("'", "''");
