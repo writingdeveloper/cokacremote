@@ -37,6 +37,9 @@ export interface AppConfig {
   maxFileChunkBytes: number;
   maxEditFileBytes: number;
   maxDirectoryEntries: number;
+  mediaRoot: string;
+  mediaMaxConcurrent: number;
+  mediaMaxJobs: number;
   wakatimeEnabled: boolean;
   wakatimeCli: string | undefined;
   wakatimeHome: string | undefined;
@@ -301,6 +304,21 @@ export function loadConfig(
       "MCP_MAX_DIRECTORY_ENTRIES",
       1,
       50_000,
+    ),
+    mediaRoot: path.resolve(env.MCP_MEDIA_ROOT?.trim() || path.join(defaultCwd, ".cokacremote-media")),
+    mediaMaxConcurrent: parseInteger(
+      env.MCP_MEDIA_MAX_CONCURRENT,
+      2,
+      "MCP_MEDIA_MAX_CONCURRENT",
+      1,
+      4,
+    ),
+    mediaMaxJobs: parseInteger(
+      env.MCP_MEDIA_MAX_JOBS,
+      64,
+      "MCP_MEDIA_MAX_JOBS",
+      1,
+      256,
     ),
     wakatimeEnabled: parseBoolean(env.MCP_WAKATIME_ENABLED, false),
     wakatimeCli: env.MCP_WAKATIME_CLI?.trim() || undefined,

@@ -56,6 +56,8 @@ function runtimePolicyFingerprint(config: AppConfig): string {
     maxFileChunkBytes: config.maxFileChunkBytes,
     maxEditFileBytes: config.maxEditFileBytes,
     maxDirectoryEntries: config.maxDirectoryEntries,
+    mediaMaxConcurrent: config.mediaMaxConcurrent,
+    mediaMaxJobs: config.mediaMaxJobs,
     oauthRefreshReplayGraceMs: config.oauthRefreshReplayGraceMs,
   };
   return createHash("sha256").update(JSON.stringify(policy)).digest("hex").slice(0, 16);

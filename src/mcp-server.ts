@@ -4,11 +4,12 @@ import { registerExecTools } from "./exec-tools.js";
 import { FileService } from "./file-service.js";
 import { registerFileTools } from "./file-tools.js";
 import { registerImageTools } from "./image-tools.js";
+import { registerMediaTools } from "./media/tools.js";
 import { ProcessManager } from "./process-manager.js";
 import { WakaTimeTracker } from "./wakatime-tracker.js";
 
-export const REGISTERED_TOOL_COUNT = 23;
-export const TOOL_CATALOG_REVISION = "core-2026-09-09.2";
+export const REGISTERED_TOOL_COUNT = 27;
+export const TOOL_CATALOG_REVISION = "core-media-2026-09-09.1";
 
 export interface McpServices {
   processManager: ProcessManager;
@@ -57,7 +58,7 @@ export function createMcpServer(config: AppConfig, services: McpServices): McpSe
     },
     {
       instructions:
-        "This server is an unrestricted remote development environment. Tools operate directly on the host with the MCP service process's full OS permissions. Use exec_command for shell, build, test, package, Git, service, and log workflows; run_script for complete Bash, Node.js, or Python scripts; and the file tools for direct file operations. For browser clients, batch related shell work into one exec_command or run_script call when practical. Let ordinary commands wait for their configured yield time, and poll genuinely long-running commands with read_process using afterSeq plus a long waitMs instead of frequent short polls. Use write_stdin only when interaction is required.",
+        "This server is an unrestricted remote development environment. Tools operate directly on the host with the MCP service process's full OS permissions. Use exec_command for shell, build, test, package, Git, service, and log workflows; run_script for complete Bash, Node.js, or Python scripts; and the file tools for direct file operations. For browser clients, batch related shell work into one exec_command or run_script call when practical. Let ordinary commands wait for their configured yield time, and poll genuinely long-running commands with read_process using afterSeq plus a long waitMs instead of frequent short polls. Use write_stdin only when interaction is required. Use read_image for native PNG/JPEG visual inspection. For bounded video, audio, image-comparison, and 3D review use media_capabilities, media_submit, media_job, and media_cancel; completed processing is not artistic approval.",
       capabilities: { logging: {} },
       cacheHints: {
         "server/discover": { ttlMs: config.discoveryCacheTtlMs, cacheScope: "private" },
@@ -75,5 +76,6 @@ export function createMcpServer(config: AppConfig, services: McpServices): McpSe
   );
   registerFileTools(server, config, services.fileService);
   registerImageTools(server, config);
+  registerMediaTools(server, config, services.processManager);
   return server;
 }

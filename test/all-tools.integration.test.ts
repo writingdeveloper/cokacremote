@@ -23,6 +23,10 @@ const ALL_TOOLS = [
   "list_directory",
   "list_processes",
   "make_directory",
+  "media_cancel",
+  "media_capabilities",
+  "media_job",
+  "media_submit",
   "move_path",
   "read_file",
   "read_image",
@@ -52,6 +56,10 @@ const EXPECTED_ANNOTATIONS = {
   list_directory: [true, false, true, false],
   list_processes: [true, false, true, false],
   make_directory: [false, false, true, false],
+  media_submit: [false, false, false, false],
+  media_job: [true, false, true, false],
+  media_capabilities: [true, false, true, false],
+  media_cancel: [false, true, true, false],
   move_path: [false, true, true, false],
   read_file: [true, false, true, false],
   read_image: [true, false, true, false],
@@ -697,6 +705,21 @@ describe.sequential("all registered MCP tools", () => {
     });
     expect(normalizeTextNewlines(String(threeWayValue.content))).toBe("three-way-result\n");
   }, 120_000);
+
+  it("exercises bounded media jobs through MCP", async () => {
+    const capabilities = await callOk("media_capabilities", {});
+    expect(capabilities).toHaveProperty("ffmpeg");
+    await callOk("write_file", { path: "media-probe.png", cwd: testRoot, encoding: "base64", content: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" });
+    const submitted = await callOk("media_submit", { action: "probe", path: "media-probe.png", cwd: testRoot });
+    const jobId = String(submitted.jobId);
+    let job = await callOk("media_job", { jobId });
+    for (let attempt = 0; attempt < 100 && ["queued", "running"].includes(String(job.state)); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      job = await callOk("media_job", { jobId });
+    }
+    expect(job.state).toBe("completed");
+    expect(await callOk("media_cancel", { jobId })).toMatchObject({ cancellationRequested: false, state: "completed" });
+  }, 30_000);
 
   it("rejects invalid native image content without mutating files", async () => {
     await callOk("write_file", { path: "not-image.png", content: "not-an-image" });
