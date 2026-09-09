@@ -99,17 +99,26 @@ The MCP transport is stateless, but long-running command sessions are kept in me
 - `read_process`: Poll output using a cursor and inspect process termination state
 - `terminate_process`: Send `SIGINT`, `SIGTERM`, or `SIGKILL` to a managed process group
 - `list_processes`: List running or recently completed process sessions
+- `forget_process`: Remove one completed process session from retained state
+- `clear_completed_processes`: Remove completed retained sessions without terminating running work
 
 ### Filesystem
 
-- `list_directory`, `stat_path`, `read_file`, `write_file`
+- `list_directory`, `stat_path`, `read_file`, `read_image`, `write_file`
 - `replace_in_file`, `apply_patch`
 - `upload_file`, `download_file`, `hash_file`
 - `make_directory`, `copy_path`, `move_path`, `remove_path`, `chmod_path`
 
-Relative paths are resolved from `MCP_DEFAULT_CWD`, while absolute paths and `~/...` paths are also allowed. Uploads and downloads use base64 chunk transfer with `nextOffset`.
+Relative paths are resolved from `MCP_DEFAULT_CWD`, while absolute paths and `~/...` paths are also allowed. Uploads and downloads use base64 chunk transfer with `nextOffset`. `read_image` returns bounded native PNG/JPEG image content rather than duplicating binary data in text.
 
-The server provides 20 tools in total. `remove_path` permanently deletes targets without using a trash folder, and `apply_patch` uses the host's `git apply --unsafe-paths`.
+### Local media review
+
+- `media_capabilities`: Report installed FFmpeg, ffprobe, Blender, supported actions, and bounded runtime limits
+- `media_submit`: Submit a bounded image/video/audio/3D review job
+- `media_job`: Inspect persistent job state, reports, and selected native previews/audio
+- `media_cancel`: Request cancellation of one media job without affecting unrelated work
+
+The combined catalog provides 27 tools in total. `remove_path` permanently deletes targets without using a trash folder, and `apply_patch` uses the host's `git apply --unsafe-paths`. Media processing success does not imply artistic acceptance; generated reports begin as `NOT_REVIEWED`.
 
 ### Tool safety and authentication metadata
 
@@ -117,9 +126,10 @@ Every tool explicitly publishes all four MCP safety hints. The values describe t
 
 | Behavior | Tools | `readOnlyHint` | `destructiveHint` | `idempotentHint` | `openWorldHint` |
 |---|---|---:|---:|---:|---:|
-| Read-only, closed world | `list_directory`, `stat_path`, `read_file`, `download_file`, `hash_file`, `read_process`, `list_processes` | `true` | `false` | `true` | `false` |
+| Read-only, closed world | `list_directory`, `stat_path`, `read_file`, `read_image`, `download_file`, `hash_file`, `read_process`, `list_processes`, `media_capabilities`, `media_job` | `true` | `false` | `true` | `false` |
+| Stateful, non-destructive, closed world | `media_submit` | `false` | `false` | `false` | `false` |
 | Additive and idempotent | `make_directory` | `false` | `false` | `true` | `false` |
-| Destructive and idempotent | `upload_file`, `copy_path`, `move_path`, `remove_path`, `chmod_path` | `false` | `true` | `true` | `false` |
+| Destructive and idempotent | `upload_file`, `copy_path`, `move_path`, `remove_path`, `chmod_path`, `forget_process`, `clear_completed_processes`, `media_cancel` | `false` | `true` | `true` | `false` |
 | Destructive and non-idempotent, closed world | `write_file`, `replace_in_file`, `apply_patch`, `terminate_process` | `false` | `true` | `false` | `false` |
 | Destructive and non-idempotent, open world | `exec_command`, `run_script`, `write_stdin` | `false` | `true` | `false` | `true` |
 
@@ -146,7 +156,7 @@ These annotations are advisory client metadata, not access control. They do not 
 
 ### MCP 2026 cache and long-running compatibility
 
-For MCP 2026-07-28 clients, `server/discover` and `tools/list` carry an SDK-supported private cache hint controlled by `MCP_DISCOVERY_CACHE_TTL_MS` (default `300000`). The ChatGPT Web profile raises this to 24 hours (`86400000`) so a stable tool inventory is not needlessly expired every five minutes. Legacy 2025-era responses are unchanged by these hints.
+For MCP 2026-07-28 clients, `server/discover` and `tools/list` carry an SDK-supported private cache hint controlled by `MCP_DISCOVERY_CACHE_TTL_MS` (default `300000`). The ChatGPT Web profile also uses five minutes. An earlier 24-hour profile was removed after production QA showed that an already-open conversation could retain a pre-deployment tool catalog for too long. Control/catalog requests use their own bounded concurrency gate, so frequent discovery refreshes do not compete with long-running tool calls. Legacy 2025-era responses are unchanged by these hints.
 
 The installed MCP SDK 2.0.0 exposes the 2026 task method schemas but does not expose a server-side task store/manager runtime through `McpServer` or `createMcpHandler`. Its legacy `capabilities.tasks` and tool `execution.taskSupport` vocabulary is explicitly removed from the 2026 wire codec. `cokacremote` therefore does not advertise invented task capabilities. Long-running commands continue to use the existing in-memory process-session contract: `exec_command` or `run_script` returns a `sessionId`, then `read_process`, `write_stdin`, and `terminate_process` operate on that same process session.
 
@@ -160,16 +170,21 @@ MCP_MAX_RETAINED_PROCESS_OUTPUT_BYTES=1048576
 MCP_PROCESS_RETENTION_MS=900000
 MCP_MAX_PROCESSES=64
 MCP_MAX_CONCURRENT_TOOL_CALLS=8
+MCP_MAX_CONCURRENT_CONTROL_CALLS=4
 MCP_MAX_CONCURRENT_PROCESSES=16
 MCP_MAX_QUEUED_REQUESTS=32
+MCP_MAX_QUEUED_CONTROL_REQUESTS=16
 MCP_PROCESS_YIELD_TIME_MS=30000
 MCP_PROCESS_POLL_WAIT_MS=30000
 MCP_MAX_FILE_CHUNK_BYTES=262144
-MCP_DISCOVERY_CACHE_TTL_MS=86400000
+MCP_MAX_DIRECTORY_ENTRIES=5000
+MCP_DISCOVERY_CACHE_TTL_MS=300000
 MCP_OAUTH_REFRESH_REPLAY_GRACE_MS=10000
+MCP_MEDIA_MAX_CONCURRENT=2
+MCP_MEDIA_MAX_JOBS=64
 ```
 
-These are deployment recommendations, not global defaults. They keep individual process responses at 128 KiB, retain up to 1 MiB per process for later polling, expire completed sessions after 15 minutes, retain up to 64 managed process sessions, allow up to 16 concurrent managed processes while keeping MCP request concurrency at 8, wait up to 30 seconds for ordinary commands, long-poll process reads for 30 seconds, use 256 KiB file-transfer pages, and keep a stable MCP 2026 tool manifest fresh for 24 hours. This reduces browser memory, transport amplification, and avoidable tool-registry churn without discarding output that is still inside the retained-output budget.
+These are deployment recommendations, not global defaults. They keep individual process responses at 128 KiB, retain up to 1 MiB per process for later polling, expire completed sessions after 15 minutes, retain up to 64 managed process sessions, allow up to 16 concurrent managed processes, reserve 4 independent control/discovery slots alongside 8 ordinary MCP execution slots, wait up to 30 seconds for ordinary commands, long-poll process reads for 30 seconds, use 256 KiB file-transfer pages, cap directory results at 5,000 entries, refresh the MCP 2026 tool manifest every five minutes, and bound local media workers to 2. This reduces browser memory and transport amplification while preventing long tool calls from starving connector rediscovery.
 
 Process tools default to `outputMode=compact`, which returns one canonical interleaved `output` string. Use `outputMode=streams` only when separate `stdout` and `stderr` are required, or `outputMode=metadata` when only lifecycle/counter state is needed.
 
@@ -381,14 +396,14 @@ npm run build
 The default tests use a real Streamable HTTP MCP client and cover:
 
 - Bearer authentication, stateless request processing, and request tracing headers
-- Success paths, failure paths, and input boundary cases for all 20 tools
+- Success paths, failure paths, and input boundary cases for all 27 tools
 - Interactive stdin, output pagination, timeouts, termination, and completed-process retention
 - UTF-8 character boundaries, strict base64 validation, file modes, and copy/move conflicts
 - Unified diff validation, application, reverse application, and 3-way application
 
 ### Full E2E verification against a running external MCP server
 
-From a separate source checkout with development dependencies installed, you can verify all 20 tools against a real HTTPS endpoint:
+From a separate source checkout with development dependencies installed, you can verify all 27 tools against a real HTTPS endpoint:
 
 ```bash
 MCP_E2E_URL='https://mcp.example.com/mcp' \
@@ -473,7 +488,7 @@ MCP_WAKATIME_TRACK_SHELL_CHANGES=true
 | `src/file-tools.ts` | Filesystem tools and input schemas |
 | `src/oauth.ts` | DCR, PKCE, token issuance/refresh/revocation, and approval UI |
 | `deploy/` | systemd, environment-file, and Nginx examples |
-| `test/all-tools.integration.test.ts` | E2E tests for all 20 tools and external endpoints |
+| `test/all-tools.integration.test.ts` | E2E tests for all 27 tools and external endpoints |
 | `test/` | Configuration, file, process, MCP, and OAuth unit/integration tests |
 
 ## License
@@ -500,13 +515,13 @@ The user assumes full responsibility for all consequences arising from the use o
 
 ### Windows production runtime
 
-For Windows hosts, `deploy/windows/` provides a portable Scheduled Task runtime instead of embedding machine-specific paths in ad-hoc wrapper scripts. Copy `deploy/windows/windows.env.example` to an untracked private config, set `REPO_PATH`, `MCP_ENV_FILE`, `SERVER_PORT`, `HEALTH_URL`, and optional Cloudflare tunnel paths, then install it with:
+For Windows hosts, `deploy/windows/` provides a portable Scheduled Task runtime instead of embedding machine-specific paths in ad-hoc wrapper scripts. Copy `deploy/windows/windows.env.example` to an untracked private config, set `REPO_PATH`, `MCP_ENV_FILE`, `SERVER_PORT`, `HEALTH_URL`, and optional Cloudflare tunnel paths. Production deployments should also set `EXPECTED_TOOL_COUNT` and `EXPECTED_CATALOG_REVISION` so HTTP 200 from an older build is treated as unhealthy. Then install it with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1 -ConfigPath C:\path\to\windows.env
 ```
 
-The server supervisor adopts a matching existing listener after wrapper restarts, rejects unrelated owners of the configured port, waits on the child, and restarts it after exit. The optional tunnel supervisor uses cloudflared's native `--logfile` and similarly adopts a matching tunnel. The one-minute watchdog restarts stopped supervisor tasks, removes duplicate matching children, and recycles the server only after two consecutive health failures. Supervisor tasks use `IgnoreNew`, can run on battery, have no execution time limit, and are configured for Task Scheduler restart recovery.
+The server supervisor adopts a matching existing listener after wrapper restarts, rejects unrelated owners of the configured port, waits on the child, and restarts it after exit. The optional tunnel supervisor uses cloudflared's native `--logfile` and similarly adopts a matching tunnel. The one-minute watchdog restarts stopped supervisor tasks, removes duplicate matching children, and recycles the server only after two consecutive health failures. When catalog invariants are configured, a tool-count or catalog-revision mismatch is a health failure even if `/health` returns HTTP 200. The watchdog itself runs through `wscript.exe` so its one-minute check does not flash a PowerShell console window. Supervisor tasks use `IgnoreNew`, can run on battery, have no execution time limit, and are configured for Task Scheduler restart recovery.
 
 Inspect the runtime without changing it:
 
@@ -514,16 +529,18 @@ Inspect the runtime without changing it:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\status.ps1 -ConfigPath C:\path\to\windows.env
 ```
 
-Remove only the registered tasks with:
+Remove the registered tasks and their matching server/tunnel child processes with:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\uninstall.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\uninstall.ps1 -ConfigPath C:\path\to\windows.env
 ```
+
+`-ConfigPath` is optional for backward compatibility, but without it the uninstaller can identify only the Scheduled Tasks and cannot safely identify orphaned child processes.
 
 Use a unique `-TaskPrefix` for canaries or tests. Deployment-specific OAuth keys, Cloudflare credentials, domains, WakaTime paths, and other secrets belong in private environment/config files and should not be committed.
 
 ### MCP 2026 cache and task compatibility
 
-With `@modelcontextprotocol/server` 2.0.0, cokacremote serves MCP 2026-07-28 `server/discover` and `tools/list` results with an SDK-supported configurable private cache hint (`MCP_DISCOVERY_CACHE_TTL_MS`, `cacheScope: private`). The generic default remains five minutes; the ChatGPT Web deployment profile uses 24 hours for a stable inventory. Integration tests assert those wire fields so future SDK upgrades cannot silently drop the browser-facing cache behavior.
+With `@modelcontextprotocol/server` 2.0.0, cokacremote serves MCP 2026-07-28 `server/discover` and `tools/list` results with an SDK-supported configurable private cache hint (`MCP_DISCOVERY_CACHE_TTL_MS`, `cacheScope: private`). The generic default and ChatGPT Web deployment profile both use five minutes. Integration tests assert those wire fields and the separate control-plane concurrency path so future SDK upgrades cannot silently drop browser-facing rediscovery behavior.
 
 The same SDK release exports the older task wire types (`Task`, `GetTaskRequest`, `ListTasksRequest`, and related types), but its public declarations explicitly mark them as deprecated 2025-11-25 vocabulary **with no SDK runtime** and exclude `tasks/get`, `tasks/result`, `tasks/list`, and `tasks/cancel` from the typed request-handler surface. cokacremote therefore does not invent custom task methods or advertise a task capability that the installed SDK cannot serve correctly. Long-running work continues to use the existing `ProcessManager` session IDs through `exec_command`/`run_script`, `read_process`, and `terminate_process`. Revisit a native task adapter only when the installed MCP SDK exposes a supported task runtime.

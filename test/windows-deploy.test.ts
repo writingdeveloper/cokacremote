@@ -108,7 +108,7 @@ describe.runIf(process.platform === "win32")("portable Windows deployment", () =
       expect(settings.watchdogArguments).toContain("-TaskPrefix");
       expect(settings.watchdogArguments).toContain(prefix);
     } finally {
-      ps(uninstallPath, ["-TaskPrefix", prefix]);
+      ps(uninstallPath, ["-TaskPrefix", prefix, "-ConfigPath", configPath]);
       const escapedPrefix = prefix.replaceAll("'", "''");
       const remaining = execFileSync(
         "powershell.exe",

@@ -36,11 +36,8 @@ try {
 }
 $failPath = Resolve-CokacPath $config (Get-CokacValue $config "WATCHDOG_FAILCOUNT_FILE" ".watchdog-server-failcount")
 $healthUrl = if ($env:COKACREMOTE_WATCHDOG_HEALTH_URL) { $env:COKACREMOTE_WATCHDOG_HEALTH_URL } else { Get-CokacRequired $config "HEALTH_URL" }
-$healthy = $false
-try {
-    $health = Invoke-WebRequest -UseBasicParsing $healthUrl -TimeoutSec 5
-    $healthy = ([int]$health.StatusCode -eq 200)
-} catch {}
+$healthStatus = Get-CokacHealthStatus $config $healthUrl
+$healthy = [bool]$healthStatus.healthy
 if ($healthy) {
     Remove-Item -LiteralPath $failPath -Force -ErrorAction SilentlyContinue
 } else {
@@ -50,7 +47,7 @@ if ($healthy) {
     }
     $failCount++
     Set-Content -LiteralPath $failPath -Value $failCount -Encoding ASCII
-    Write-CokacRuntimeLog $config ("server health failure " + $failCount + " at " + $healthUrl)
+    Write-CokacRuntimeLog $config ("server health failure " + $failCount + " at " + $healthUrl + " reason=" + $healthStatus.reason)
     if ($failCount -ge 2) {
         foreach ($node in @(Get-CokacServerProcesses $config)) {
             Write-CokacRuntimeLog $config ("watchdog recycling unhealthy node PID " + $node.ProcessId)

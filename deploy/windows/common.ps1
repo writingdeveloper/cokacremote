@@ -97,15 +97,84 @@ function Get-CokacTunnelProcesses {
     })
 }
 
+function Get-CokacHealthStatus {
+    param(
+        [hashtable]$Config,
+        [string]$Url = ""
+    )
+    if ([string]::IsNullOrWhiteSpace($Url)) { $Url = Get-CokacRequired $Config "HEALTH_URL" }
+
+    $expectedToolCountRaw = Get-CokacValue $Config "EXPECTED_TOOL_COUNT" ""
+    $expectedCatalogRevision = Get-CokacValue $Config "EXPECTED_CATALOG_REVISION" ""
+    $expectedToolCount = $null
+    $issues = @()
+    if (-not [string]::IsNullOrWhiteSpace($expectedToolCountRaw)) {
+        $parsedExpectedToolCount = 0
+        if (-not [int]::TryParse($expectedToolCountRaw, [ref]$parsedExpectedToolCount) -or $parsedExpectedToolCount -lt 1) {
+            $issues += ("invalid EXPECTED_TOOL_COUNT=" + $expectedToolCountRaw)
+        } else {
+            $expectedToolCount = $parsedExpectedToolCount
+        }
+    }
+
+    $statusCode = $null
+    $actualToolCount = $null
+    $actualCatalogRevision = $null
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing $Url -TimeoutSec 5
+        $statusCode = [int]$response.StatusCode
+        if ($statusCode -ne 200) { $issues += ("HTTP status " + $statusCode) }
+
+        $body = $null
+        try { $body = $response.Content | ConvertFrom-Json -ErrorAction Stop } catch {
+            if ($null -ne $expectedToolCount -or -not [string]::IsNullOrWhiteSpace($expectedCatalogRevision)) {
+                $issues += "health response is not valid JSON"
+            }
+        }
+        if ($body) {
+            $toolCountProperty = $body.PSObject.Properties["registeredToolCount"]
+            if ($toolCountProperty -and $null -ne $toolCountProperty.Value) {
+                try { $actualToolCount = [int]$toolCountProperty.Value } catch {}
+            }
+            $revisionProperty = $body.PSObject.Properties["toolCatalogRevision"]
+            if ($revisionProperty -and $null -ne $revisionProperty.Value) {
+                $actualCatalogRevision = [string]$revisionProperty.Value
+            }
+        }
+
+        if ($null -ne $expectedToolCount) {
+            if ($null -eq $actualToolCount) {
+                $issues += "registeredToolCount missing"
+            } elseif ($actualToolCount -ne $expectedToolCount) {
+                $issues += ("registeredToolCount expected " + $expectedToolCount + " but got " + $actualToolCount)
+            }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($expectedCatalogRevision)) {
+            if ([string]::IsNullOrWhiteSpace($actualCatalogRevision)) {
+                $issues += "toolCatalogRevision missing"
+            } elseif ($actualCatalogRevision -ne $expectedCatalogRevision) {
+                $issues += ("toolCatalogRevision expected " + $expectedCatalogRevision + " but got " + $actualCatalogRevision)
+            }
+        }
+    } catch {
+        $issues += ("request failed: " + $_.Exception.Message)
+    }
+
+    return [pscustomobject]@{
+        healthy = ($statusCode -eq 200 -and $issues.Count -eq 0)
+        url = $Url
+        statusCode = $statusCode
+        reason = ($issues -join "; ")
+        registeredToolCount = $actualToolCount
+        expectedToolCount = $expectedToolCount
+        toolCatalogRevision = $actualCatalogRevision
+        expectedCatalogRevision = $expectedCatalogRevision
+    }
+}
+
 function Test-CokacHealth {
     param([hashtable]$Config)
-    $url = Get-CokacRequired $Config "HEALTH_URL"
-    try {
-        $response = Invoke-WebRequest -UseBasicParsing $url -TimeoutSec 5
-        return ([int]$response.StatusCode -eq 200)
-    } catch {
-        return $false
-    }
+    return [bool](Get-CokacHealthStatus $Config).healthy
 }
 
 function Write-CokacRuntimeLog {
