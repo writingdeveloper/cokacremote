@@ -33,6 +33,7 @@ id_ed25519
 # Local reference material and troubleshooting captures
 /codex/
 /oauth/
+/reports/
 
 # Editors and operating systems
 .DS_Store

@@ -7,8 +7,9 @@
 - Media integration: `5286ce7` — video/image/audio/3D review engine, persistent jobs, native preview/audio path, catalog budget profiler, patched transitive dependencies.
 - Catalog cache correction: `83d8586` — ChatGPT Web discovery cache hint reduced from 24 hours to 5 minutes.
 - Final media artifact cleanup: `65e2481` — internal `job.json` / `asset-request.json` are not advertised as review artifacts.
+- Windows watchdog UX fix: `ce306e4` — the repeating watchdog is launched through `wscript.exe` so it does not flash a PowerShell console window.
 
-Production code is based on `65e2481`. Source checkouts with unrelated dirty work were not reset or cleaned; rollout used clean worktrees and copied runtime artifacts only.
+The current 4080 production runtime is based on `ce306e4`. The initial rollout used clean worktrees so unrelated source changes were not destroyed. During the final 4080 reconciliation, the previous dirty `main` state was preserved in a backup branch and stash before `main` itself was promoted to the verified rollout history.
 
 ## Production parity
 
@@ -44,6 +45,33 @@ Fresh public checks returned HTTP 200:
 - `https://cokac.writingdeveloper.blog/.well-known/oauth-protected-resource`
 
 Both public health responses reported the same 27-tool revision/fingerprint above and zero MCP aborted/error responses at verification time.
+
+## 4080 source/runtime realignment — 2026-09-09 PDT
+
+After the first successful 27-tool rollout, the 4080 production checkout was later rebuilt from an older dirty `main`. That recreated an older `dist` and caused the 4080 endpoint to regress while notebook remained on the new catalog. A fresh check on 2026-09-09 showed:
+
+- 4080 local/public health: healthy, but missing the new catalog revision/count fields.
+- notebook public health: still reporting 27 tools and `core-media-2026-09-09.1`.
+
+The recovery was performed without discarding the prior work:
+
+- backup branch: `backup/main-pre-rollout-20260909-123114`
+- preserved working tree: stash created as `pre-rollout-main-working-tree-20260909-123114`
+- 4080 `main` realigned to the verified rollout lineage and rebuilt from a clean `npm ci`
+- Windows Scheduled Task action repaired from the obsolete local `run-hidden.ps1` helper to the tracked `deploy/windows/server-supervisor.ps1`
+- watchdog task confirmed to use tracked `hidden-powershell.vbs` via `wscript.exe`
+- production Node process recycled from PID 37092 to PID 50448
+
+Post-recycle local and public 4080 health both report:
+
+- `registeredToolCount`: 27
+- `toolCatalogRevision`: `core-media-2026-09-09.1`
+- `runtimePolicyFingerprint`: `d35aa2e6b5169363`
+- execution gate: 8 active / 32 queued
+- control gate: 4 active / 16 queued
+- one matching listener and zero duplicate server processes
+
+This closes the source/runtime split that allowed a later build from `main` to undo a previously successful production rollout.
 
 ## Connector-disappearance root causes addressed
 
@@ -108,9 +136,9 @@ Production CLI smoke on both machines successfully generated an `image_review` p
 
 ## Verification evidence
 
-Final source HEAD `65e2481`:
+Verified runtime source HEAD `ce306e4` before this documentation-only recovery note:
 
-- test files: 49
+- test files: 25
 - tests: 117 passed / 0 failed
 - TypeScript typecheck: PASS
 - build: PASS
@@ -126,7 +154,7 @@ The final lockfile patches two transitive packages within compatible ranges:
 - `hono` 4.13.3 -> 4.13.7
 - `qs` 6.15.3 -> 6.16.0
 
-On the 4080 production checkout, historical SDK1 and manually installed SDK2 packages coexist in `node_modules`, causing npm's dependency-graph updater to fail with an internal `edgesOut` error. The two verified transitive package directories were therefore copied from the clean rollout `node_modules` after backing up the old directories; source/package metadata were not rewritten.
+An earlier 4080 checkout had historical SDK1 and manually installed SDK2 packages coexisting in `node_modules`, which once caused npm's dependency-graph updater to fail with an internal `edgesOut` error. The final realignment superseded that state with a clean `npm ci`; the current install audits successfully with 0 known vulnerabilities and no manual package-directory substitution is required for the current runtime.
 
 ## Rollback material
 
@@ -139,5 +167,7 @@ Notebook:
 
 - media runtime snapshot: `C:/Users/SIHYEONG/AppData/Local/Temp/cokacremote-media-20260909-110845`
 - the same snapshot contains `runtime-packages/hono-before` and `runtime-packages/qs-before` after the npm graph issue was identified.
+- pre-realignment Git branch: `backup/main-pre-rollout-20260909-123114`
+- pre-realignment dirty working tree: stash message `pre-rollout-main-working-tree-20260909-123114`
 
 Rollback snapshots are intentionally retained. Unrelated project processes and dirty source changes were not removed.
