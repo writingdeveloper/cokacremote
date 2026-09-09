@@ -36,6 +36,10 @@ Never commit OAuth credentials, Bearer tokens, Cloudflare tunnel tokens/credenti
 
 The media toolkit must remain non-destructive to source files, reject network media sources, keep execution/output bounds, and preserve `NOT_REVIEWED` semantics: successful processing is not artistic, visual, or audio approval.
 
+## Default-branch safety
+
+The public repository has an active `Protect main history` ruleset on the default branch. It blocks branch deletion and non-fast-forward/force pushes, but does not require pull requests or status checks, so maintainers can keep the existing verified fast-forward deployment workflow. Do not bypass or remove this history protection to land a change.
+
 ## Pull requests
 
 Keep changes scoped and include tests for regressions. Explain any deployment or backward-compatibility impact. If a change modifies the public tool catalog, update the catalog revision/expected count, deployment invariants, doctor/smoke expectations, and relevant documentation together.
