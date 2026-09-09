@@ -14,6 +14,12 @@ Include, when possible:
 - impact and whether host-level command/file access is possible;
 - logs or request examples with credentials, tokens, private keys, hostnames, and personal data removed.
 
+## Repository security automation
+
+The public repository uses GitHub CodeQL default setup for JavaScript/TypeScript and GitHub Actions, secret scanning with push protection, Dependabot vulnerability/security updates, and scheduled dependency-update pull requests. The default branch has a history ruleset that prevents deletion and non-fast-forward/force pushes.
+
+Static-analysis findings are investigated rather than dismissed mechanically. If an alert is a false positive because the analyzer cannot model a project-specific safety boundary, the dismissal should retain a concise technical explanation in GitHub so it remains auditable. A zero-open-alert snapshot is not a guarantee that the software is vulnerability-free.
+
 ## Deployment responsibility
 
 This project deliberately does not provide a sandbox or command/path allowlist. Operators should run it only for trusted clients, use HTTPS or a private authenticated network, protect OAuth/Bearer credentials, keep the service account's privileges no broader than necessary, and review the warning/security sections in the README before exposing an endpoint.

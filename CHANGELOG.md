@@ -21,5 +21,9 @@ All notable changes to this fork are documented here. The repository has not yet
 - README/deployment guidance now reflects the production 27-tool catalog and Windows/media capabilities.
 
 ### Security
+- Bearer authentication parsing is linear, and repeated failed MCP authentication is rate-limited while successful requests remain outside the failure budget.
+- CIMD client metadata fetching rejects IP literals, nonstandard HTTPS ports, private/special or mixed DNS answers, pins the outbound connection to the validated public address, and never follows redirects.
+- OAuth approval HTML uses the modeled `escape-html` sanitizer, with a malicious client-name regression test.
+- GitHub CodeQL default setup, secret scanning/push protection, Dependabot security updates, and default-branch history protection are enabled; the 2026-09-09 CodeQL hardening pass closed or technically triaged all initial alerts.
 - Media processing rejects network sources, disables Blender file auto-execution, bounds scan/sample/output sizes, and never treats successful processing as visual/audio/artistic approval.
 - The server remains intentionally unrestricted at the host permission level; operators must use strong authentication, HTTPS/private networking, and trusted clients only.

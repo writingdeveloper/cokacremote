@@ -236,6 +236,8 @@ When `MCP_AUTH_TOKEN` is set, every MCP request requires the following header:
 Authorization: Bearer <MCP_AUTH_TOKEN>
 ```
 
+The Bearer parser is linear rather than regex-backtracking based. Repeated unauthenticated/non-success requests at the MCP entry point are limited to 30 per minute per client key; successful HTTP responses are skipped so ordinary successful MCP traffic does not consume that failure budget.
+
 You can also enable the built-in OAuth 2.1 Authorization Server for compatible OAuth-capable MCP clients, including ChatGPT. The following values are environment-file examples, not shell commands:
 
 ```dotenv
@@ -258,7 +260,7 @@ When enabled, the server provides:
 - `resource` audience validation
 - Access tokens, replay-detecting refresh token rotation, and grant-level token revocation
 
-OAuth uses a single `mcp:tools` scope. When CIMD is enabled, the authorization metadata advertises SEP-991 support while `/register` remains available for DCR clients. URL-based client metadata is fetched only after the local approval key is accepted, over HTTPS with DNS pinning, private/special-address rejection, no redirects, a 5-second timeout, and a 64 KiB response limit. Set `MCP_OAUTH_CIMD_ENABLED=false` as an emergency compatibility switch. Existing registered DCR clients and tokens remain valid; changing this setting does not require reinstalling the ChatGPT connector. Enter the `MCP_OAUTH_APPROVAL_KEY` value on the approval page shown when authorizing an OAuth client connection. For OAuth-only deployments, it is recommended to leave `MCP_AUTH_TOKEN` empty so there is no permanent static Bearer bypass path. For backward compatibility, `MCP_AUTH_TOKEN` is used as the approval key when no dedicated approval key is configured, but keeping the two values separate is safer. Treat both values like root credentials. Registered clients, client secrets, and token hashes are stored in `MCP_OAUTH_STATE_FILE` with mode `600`.
+OAuth uses a single `mcp:tools` scope. When CIMD is enabled, the authorization metadata advertises SEP-991 support while `/register` remains available for DCR clients. URL-based client metadata is fetched only after the local approval key is accepted. The client ID must use HTTPS, a DNS hostname rather than an IP literal, the standard HTTPS port, and a non-root path. Every resolved address must be public; the request is pinned to an already-validated address, redirects are not followed, and the fetch is bounded to 5 seconds and 64 KiB. Set `MCP_OAUTH_CIMD_ENABLED=false` as an emergency compatibility switch. Existing registered DCR clients and tokens remain valid; changing this setting does not require reinstalling the ChatGPT connector. Enter the `MCP_OAUTH_APPROVAL_KEY` value on the approval page shown when authorizing an OAuth client connection. For OAuth-only deployments, it is recommended to leave `MCP_AUTH_TOKEN` empty so there is no permanent static Bearer bypass path. For backward compatibility, `MCP_AUTH_TOKEN` is used as the approval key when no dedicated approval key is configured, but keeping the two values separate is safer. Treat both values like root credentials. Registered clients, client secrets, and token hashes are stored in `MCP_OAUTH_STATE_FILE` with mode `600`.
 
 OAuth-related HTTP routes:
 
@@ -413,6 +415,12 @@ The default tests use a real Streamable HTTP MCP client and cover:
 - Interactive stdin, output pagination, timeouts, termination, and completed-process retention
 - UTF-8 character boundaries, strict base64 validation, file modes, and copy/move conflicts
 - Unified diff validation, application, reverse application, and 3-way application
+- Authentication abuse boundaries, CIMD SSRF/DNS-rebinding defenses, and OAuth HTML-escaping regressions
+- External production-smoke parity plus GitHub-hosted Linux/Windows CI
+
+### Repository security automation
+
+The public repository uses GitHub CodeQL default setup for JavaScript/TypeScript and Actions, secret scanning with push protection, Dependabot vulnerability alerts/security updates, and weekly Dependabot version PRs. The default branch also has a history-protection ruleset that blocks branch deletion and non-fast-forward/force pushes without forcing maintainers into a PR-only workflow. Code-scanning dismissals, when needed, must include a concrete technical rationale rather than being used to make the dashboard green.
 
 ### Full E2E verification against a running external MCP server
 

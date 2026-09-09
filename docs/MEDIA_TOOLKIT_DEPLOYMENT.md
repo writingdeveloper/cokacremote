@@ -12,8 +12,12 @@
 - Runtime doctor + catalog telemetry: `114b4f6` — `/health` records live `server/discover` / `tools/list` activity and `npm run doctor` separates server faults from plausible client-side manifest caching.
 - Public operations/release guidance: `933f073` — README/repository metadata, CHANGELOG, SECURITY policy and explicit release checklist were brought in line with the 27-tool Linux/Windows deployment.
 - Windows Cloudflare token-file support: `fa54790` + `9d9a2a5` — the supervisor can use an ACL-restricted token file without placing the secret token in process arguments; the hosted Windows regression is path-alias independent.
+- External production monitoring: `d1afdbb` — hourly GitHub-hosted smoke checks both public endpoints for availability, 27-tool/catalog correctness and cross-host policy parity.
+- Maintenance/repository controls: `44e3653` + `6faa0a0` — weekly Dependabot updates, contribution guidance, and a default-branch ruleset blocking deletion/non-fast-forward pushes while preserving verified fast-forward maintenance.
+- Authentication/CIMD hardening: `5dfeac6` — linear Bearer parsing, failed-auth rate limiting, safer configuration errors, explicit `shell:false`, and stronger CIMD SSRF/DNS-rebinding boundaries.
+- OAuth HTML sanitizer hardening: `ede9b24` — standard modeled `escape-html` sanitizer; the reflected-XSS CodeQL alert closed automatically as fixed.
 
-The current 4080 operational checkout is based on `9d9a2a5`. The running Node application (PID 50876) contains the `114b4f6` telemetry/doctor runtime; the later commits change documentation, Windows deployment controls and tests, so no additional Node recycle is required for those later commits. The initial rollout used clean worktrees so unrelated source changes were not destroyed. During the final 4080 reconciliation, the previous dirty `main` state was preserved in a backup branch and stash before `main` itself was promoted to the verified rollout history.
+The currently deployed 4080 application `dist` was built from clean commit `ede9b24`, and its production Node process is PID 41552. The 4080 source checkout was clean at that commit immediately before this evidence-only documentation update; later documentation-only commits do not require a Node recycle. Notebook intentionally keeps its older dirty/private source checkout unchanged, but its deployed `dist` was built from the same clean `ede9b24` source and runs as PID 55092. Both production endpoints therefore execute the same security-hardened application code while preserving notebook's unrelated source work. The initial rollout used clean worktrees so unrelated changes were not destroyed; the 4080 reconciliation likewise preserved the previous dirty state in a backup branch and stash before `main` was promoted to the verified rollout history.
 
 ## Production parity
 
@@ -137,6 +141,23 @@ The remaining cleanup is deliberately administrator-only: run the synced elevate
 
 To cover failures that neither host-local watchdog can see (for example DNS/Cloudflare route drift while both origins remain healthy), `scripts/production-smoke.mjs` and `.github/workflows/production-smoke.yml` add an external, read-only health check. The scheduled workflow runs hourly at minute 17, retries transient network failures, validates `status=ok`, 27 tools, `core-media-2026-09-09.1`, OAuth enabled, and identical runtime-policy fingerprints across `mcp.writingdeveloper.blog` and `cokac.writingdeveloper.blog`. Its local success/failure behavior is also regression-tested so stale 21-tool payloads cannot pass silently.
 
+## Security hardening, CodeQL closure, and production redeploy
+
+GitHub CodeQL default setup was enabled for JavaScript/TypeScript and GitHub Actions. The first scan reported 13 alerts. Commit `5dfeac6` removed nine of them from subsequent analysis by replacing the Bearer-token regex with a linear parser, adding a 30-per-minute failed-request limiter on the MCP entry point, preventing raw invalid environment values from being reflected in configuration errors/logging, replacing a dynamic Windows process regex, explicitly using `shell:false`, and strengthening CIMD validation/fetching. CIMD now requires HTTPS + DNS hostname + standard port + non-root path; rejects credentials/fragments, IP literals and any DNS answer set containing private/special addresses; pins the request lookup to an already-validated public address; follows no redirects; and retains the 5-second / 64 KiB bounds. Regression tests exercise private-only and mixed DNS answers, IP literals, nonstandard ports, redirects, pinned-address forwarding and authentication throttling.
+
+The remaining reflected-XSS finding was not dismissed. Commit `ede9b24` switched the OAuth approval page to the standard `escape-html` sanitizer while preserving the malicious `<script>` client-name test. CodeQL then marked alert 12 as `fixed` automatically. Three residual analyzer-model findings were investigated and dismissed as false positives with comments stored on the GitHub alerts: (1) CIMD's external-URL SSRF sink is behind the public-address validation + pinned lookup/no-redirect boundary above; (2) `runtimePolicyFingerprint` is a non-secret operational-policy checksum, not a password hash; and (3) direct `spawn(executable, argv, { shell: false })` is the documented authenticated remote-execution capability, not accidental shell-string interpolation. After that review, CodeQL open alerts were 0; Dependabot and secret-scanning open alerts were also 0 at verification time.
+
+Local verification for this security wave passed 28 test files / 129 tests, TypeScript build and production dependency audit with 0 known vulnerabilities. Hosted CI run `34418128654` passed both Linux full regression and Windows Scheduled Task/process lifecycle regression. CodeQL run `34418127904` passed both `javascript-typescript` and `actions` analysis.
+
+The security-hardened runtime was then deployed to both production hosts without discarding unrelated work:
+
+- 4080: clean `ede9b24` install/build, previous `dist` backed up at `C:/Users/SIHYEONG/AppData/Local/Temp/dist.rollback-pre-security-20260909-164642`, Node recycled from PID 50876 to PID 41552.
+- notebook: clean detached `ede9b24` TEMP build was canary-tested against the existing private runtime dependency tree (including the failed-auth 30x401 -> 31st 429 boundary), previous `dist` backed up at `C:/Users/sihye/AppData/Local/Temp/cokacremote-dist-pre-security-20260909-165136`, only the verified `dist` was copied into the dirty/private checkout, and Node recycled from PID 45496 to PID 55092.
+
+Post-deploy cross-host `npm run smoke:production` passed on the first attempt: both public endpoints reported 27 tools, `core-media-2026-09-09.1`, OAuth enabled and identical `d35aa2e6b5169363` policy fingerprints. 4080 public `npm run doctor -- --url https://cokac.writingdeveloper.blog --skip-media` also passed; its only warning remained the independently measured client-side stale-manifest condition (`catalogDiscovery` still receives no fresh `tools/list`/`server/discover` from this already-open conversation).
+
+Repository controls active after the hardening pass include secret scanning + push protection, Dependabot vulnerability/security updates, weekly npm/GitHub-Actions Dependabot PRs, CodeQL default setup, private vulnerability reporting, and ruleset `Protect main history` (ID 22699796) blocking default-branch deletion and non-fast-forward pushes without requiring PR-only maintenance.
+
 ## Connector-disappearance root causes addressed
 
 ### 1. Tool execution could starve discovery
@@ -200,11 +221,15 @@ Production CLI smoke on both machines successfully generated an `image_review` p
 
 ## Verification evidence
 
-Verified operational code HEAD `9d9a2a5` before this documentation-only evidence update:
+Verified deployed application code HEAD `ede9b24` before this documentation-only evidence update:
 
-- test files: 27
-- tests: 124 passed / 0 failed
-- GitHub Actions run `34405809704`: Linux PASS / Windows PASS
+- test files: 28
+- tests: 129 passed / 0 failed
+- GitHub Actions run `34418128654`: Linux PASS / Windows PASS
+- CodeQL run `34418127904`: JavaScript/TypeScript PASS / Actions PASS
+- CodeQL open alerts: 0 after one modeled-XSS fix plus documented false-positive triage
+- Dependabot open alerts: 0; secret-scanning open alerts: 0 at verification time
+- cross-host production smoke: PASS after both hosts were redeployed
 - public doctor: PASS with the expected catalog-discovery cache warning only
 - TypeScript typecheck: PASS
 - build: PASS
@@ -220,6 +245,8 @@ The final lockfile patches two transitive packages within compatible ranges:
 - `hono` 4.13.3 -> 4.13.7
 - `qs` 6.15.3 -> 6.16.0
 
+The security pass also makes two runtime protections explicit direct dependencies in the verified 4080 build: `express-rate-limit@8.6.2` and `escape-html@1.0.3`. Notebook's dirty/private dependency tree was not rewritten; its existing compatible `express-rate-limit@8.7.0` + `escape-html@1.0.3` resolved the same `ede9b24` dist successfully in a local canary before deployment.
+
 An earlier 4080 checkout had historical SDK1 and manually installed SDK2 packages coexisting in `node_modules`, which once caused npm's dependency-graph updater to fail with an internal `edgesOut` error. The final realignment superseded that state with a clean `npm ci`; the current install audits successfully with 0 known vulnerabilities and no manual package-directory substitution is required for the current runtime.
 
 ## Rollback material
@@ -228,10 +255,12 @@ Notebook:
 
 - media runtime snapshot: `C:/Users/sihye/AppData/Local/Temp/cokacremote-media-20260909-110144`
 - pre-5-minute-TTL env snapshot: `C:/Users/sihye/AppData/Local/Temp/cokacremote-env-before-ttl-20260909-110701.production`
+- pre-security application `dist`: `C:/Users/sihye/AppData/Local/Temp/cokacremote-dist-pre-security-20260909-165136`
 
 4080:
 
 - media runtime snapshot: `C:/Users/SIHYEONG/AppData/Local/Temp/cokacremote-media-20260909-110845`
+- pre-security application `dist`: `C:/Users/SIHYEONG/AppData/Local/Temp/dist.rollback-pre-security-20260909-164642`
 - the same snapshot contains `runtime-packages/hono-before` and `runtime-packages/qs-before` after the npm graph issue was identified.
 - pre-realignment Git branch: `backup/main-pre-rollout-20260909-123114`
 - pre-realignment dirty working tree: stash message `pre-rollout-main-working-tree-20260909-123114`
