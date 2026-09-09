@@ -26,6 +26,8 @@ it('persists asynchronous results, bounds concurrent work and survives client se
   expect(state.state).toBe('completed');
   expect(state.report?.acceptance).toBe('NOT_REVIEWED');
   expect(state.report?.artifacts.some(a=>a.name==='preview.jpg')).toBe(true);
+  expect(state.report?.artifacts.map(a=>a.name)).not.toContain('job.json');
+  expect(state.report?.artifacts.map(a=>a.name)).not.toContain('asset-request.json');
   const fresh=new MediaJobs({root:path.join(dir,'jobs'),defaultCwd:dir,processManager:manager,maxConcurrent:1});
   expect((await fresh.get(first.jobId)).state).toBe('completed');
   expect((await readFile(path.join(state.directory,'index.html'),'utf8'))).toContain('NOT_REVIEWED');

@@ -119,7 +119,7 @@ const numeric=(v:unknown)=>{const n=Number(v);return Number.isFinite(n)?n:null;}
 const events=(text:string,pattern:RegExp,offset:number):TimedEvent[]=>[...text.matchAll(pattern)].slice(0,500).map(m=>({kind:m[1]!,timeSeconds:Number(m[2])+offset}));
 function escapeHtml(s:string){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));}
 async function finishReport(report:ReviewReport,dir:string){
-  const files=(await readdir(dir)).filter(n=>/\.(png|jpg|wav|json)$/.test(n)&&!['request.json','status.json','report.json'].includes(n));
+  const files=(await readdir(dir)).filter(n=>/\.(png|jpg|wav|json)$/.test(n)&&!['request.json','status.json','report.json','job.json','asset-request.json'].includes(n));
   let total=0;
   for(const name of files){
     const id=await fingerprint(path.join(dir,name)); total+=id.bytes;
