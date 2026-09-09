@@ -23,7 +23,18 @@ foreach ($name in $taskNames) {
 $listener = $null
 try { $listener = Get-CokacServerListener $config } catch {}
 $nodes = @(Get-CokacServerProcesses $config)
-$tunnels = @(Get-CokacTunnelProcesses $config)
+$tunnels = @()
+$tunnelMode = "disabled"
+$tunnelError = ""
+if ($tunnelEnabled) {
+    try {
+        $tunnelMode = [string](Get-CokacTunnelSpec $config).mode
+        $tunnels = @(Get-CokacTunnelProcesses $config)
+    } catch {
+        $tunnelMode = "invalid"
+        $tunnelError = $_.Exception.Message
+    }
+}
 $healthStatus = Get-CokacHealthStatus $config
 $healthy = [bool]$healthStatus.healthy
 $status = [pscustomobject]@{
@@ -44,6 +55,8 @@ $status = [pscustomobject]@{
     }
     tunnel = [pscustomobject]@{
         enabled = $tunnelEnabled
+        mode = $tunnelMode
+        error = $tunnelError
         matchingProcesses = $tunnels.Count
         duplicateCount = [Math]::Max(0, $tunnels.Count - 1)
     }
@@ -56,5 +69,6 @@ if ($JsonOnly) {
 Write-Output ("Tasks: " + (($tasks | ForEach-Object { $_.name + "=" + $_.state }) -join ", "))
 Write-Output ("Server: health=" + $healthy + " listenerPid=" + $status.server.listenerPid + " matches=" + $nodes.Count + " tools=" + $status.server.registeredToolCount + "/" + $status.server.expectedToolCount + " catalog=" + $status.server.toolCatalogRevision)
 if (-not $healthy -and -not [string]::IsNullOrWhiteSpace([string]$status.server.healthReason)) { Write-Output ("Health reason: " + $status.server.healthReason) }
-Write-Output ("Tunnel: enabled=" + $tunnelEnabled + " matches=" + $tunnels.Count)
+Write-Output ("Tunnel: enabled=" + $tunnelEnabled + " mode=" + $tunnelMode + " matches=" + $tunnels.Count)
+if (-not [string]::IsNullOrWhiteSpace($tunnelError)) { Write-Output ("Tunnel error: " + $tunnelError) }
 Write-Output ("STATUS_JSON=" + $json)

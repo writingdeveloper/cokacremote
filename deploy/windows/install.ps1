@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 $config = Read-CokacConfig $ConfigPath
 $configPathResolved = Get-CokacRequired $config "__CONFIG_PATH"
 $tunnelEnabled = ConvertTo-CokacBool (Get-CokacValue $config "TUNNEL_ENABLED" "false")
+if ($tunnelEnabled) { [void](Get-CokacTunnelSpec $config) }
 $currentUser = "$env:USERDOMAIN\$env:USERNAME"
 
 function New-SupervisorSettings {

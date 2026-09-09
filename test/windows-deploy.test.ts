@@ -120,6 +120,47 @@ describe.runIf(process.platform === "win32")("portable Windows deployment", () =
     }
   }, 90_000);
 
+  it("supports Cloudflare token-file and config tunnel modes without exposing a token in arguments", () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "cokacremote-tunnel-spec-"));
+    const tokenPath = path.join(tempDir, "tunnel.token");
+    const tunnelConfigPath = path.join(tempDir, "cloudflared.yml");
+    const fakeExe = path.join(tempDir, "cloudflared.exe");
+    const runtimeConfig = path.join(tempDir, "windows.env");
+    writeFileSync(tokenPath, "secret-not-command-line", "utf8");
+    writeFileSync(tunnelConfigPath, "tunnel: example\n", "utf8");
+    writeFileSync(fakeExe, "", "utf8");
+    const commonPath = path.join(deployRoot, "common.ps1").replaceAll("'", "''");
+    const ps = (configLines: string[]) => {
+      writeFileSync(runtimeConfig, configLines.join("\n"), "utf8");
+      const escapedConfig = runtimeConfig.replaceAll("'", "''");
+      const raw = execFileSync(
+        "powershell.exe",
+        ["-NoProfile", "-Command", `. '${commonPath}';$c=Read-CokacConfig '${escapedConfig}';Get-CokacTunnelSpec $c|ConvertTo-Json -Depth 5 -Compress`],
+        { encoding: "utf8", windowsHide: true },
+      );
+      return JSON.parse(raw.trim()) as { mode: string; identity: string; url: string | null; arguments: string[] };
+    };
+    try {
+      const base = [
+        `REPO_PATH=${tempDir}`,
+        "SERVER_PORT=3000",
+        "TUNNEL_ENABLED=true",
+        `TUNNEL_EXE=${fakeExe}`,
+        "TUNNEL_LOG=tunnel.log",
+      ];
+      const tokenSpec = ps([...base, `TUNNEL_TOKEN_FILE=${tokenPath}`, "TUNNEL_URL=http://127.0.0.1:3000"]);
+      expect(tokenSpec).toMatchObject({ mode: "token-file", identity: path.resolve(tokenPath), url: "http://127.0.0.1:3000" });
+      expect(tokenSpec.arguments).toEqual(expect.arrayContaining(["--token-file", path.resolve(tokenPath), "--url", "http://127.0.0.1:3000"]));
+      expect(tokenSpec.arguments.join(" ")).not.toContain("secret-not-command-line");
+
+      const configSpec = ps([...base, `TUNNEL_CONFIG=${tunnelConfigPath}`]);
+      expect(configSpec).toMatchObject({ mode: "config", identity: path.resolve(tunnelConfigPath), url: null });
+      expect(configSpec.arguments).toEqual(expect.arrayContaining(["--config", path.resolve(tunnelConfigPath)]));
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("provides a machine-neutral config example", () => {
     expect(existsSync(path.join(deployRoot, "windows.env.example"))).toBe(true);
   });

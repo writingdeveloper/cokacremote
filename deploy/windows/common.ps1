@@ -85,15 +85,62 @@ function Get-CokacServerProcess {
     throw ("Port {0} is occupied by an unrelated process (PID {1})." -f $listener.LocalPort, $listener.OwningProcess)
 }
 
+function Quote-CokacProcessArgument {
+    param([string]$Value)
+    if ($Value -notmatch '[\s"]') { return $Value }
+    return '"' + ($Value -replace '"', '\"') + '"'
+}
+
+function Get-CokacTunnelSpec {
+    param([hashtable]$Config)
+    $exe = Resolve-CokacPath $Config (Get-CokacRequired $Config "TUNNEL_EXE")
+    $log = Resolve-CokacPath $Config (Get-CokacValue $Config "TUNNEL_LOG" "tunnel-cloudflared.log")
+    $configRaw = Get-CokacValue $Config "TUNNEL_CONFIG" ""
+    $tokenFileRaw = Get-CokacValue $Config "TUNNEL_TOKEN_FILE" ""
+    if (-not [string]::IsNullOrWhiteSpace($configRaw) -and -not [string]::IsNullOrWhiteSpace($tokenFileRaw)) {
+        throw "Configure exactly one of TUNNEL_CONFIG or TUNNEL_TOKEN_FILE, not both."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($tokenFileRaw)) {
+        $tokenFile = Resolve-CokacPath $Config $tokenFileRaw
+        if (-not (Test-Path -LiteralPath $tokenFile -PathType Leaf)) { throw "Tunnel token file not found: $tokenFile" }
+        $url = Get-CokacValue $Config "TUNNEL_URL" ("http://127.0.0.1:" + (Get-CokacRequired $Config "SERVER_PORT"))
+        return [pscustomobject]@{
+            mode = "token-file"
+            executable = $exe
+            identity = $tokenFile
+            url = $url
+            arguments = @(
+                "tunnel", "--logfile", (Quote-CokacProcessArgument $log), "run",
+                "--token-file", (Quote-CokacProcessArgument $tokenFile),
+                "--url", $url
+            )
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($configRaw)) {
+        throw "Tunnel is enabled but neither TUNNEL_CONFIG nor TUNNEL_TOKEN_FILE is configured."
+    }
+    $configPath = Resolve-CokacPath $Config $configRaw
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { throw "Tunnel config file not found: $configPath" }
+    return [pscustomobject]@{
+        mode = "config"
+        executable = $exe
+        identity = $configPath
+        url = $null
+        arguments = @(
+            "--config", (Quote-CokacProcessArgument $configPath),
+            "tunnel", "--logfile", (Quote-CokacProcessArgument $log), "run"
+        )
+    }
+}
+
 function Get-CokacTunnelProcesses {
     param([hashtable]$Config)
     $enabled = ConvertTo-CokacBool (Get-CokacValue $Config "TUNNEL_ENABLED" "false")
     if (-not $enabled) { return @() }
-    $exe = Resolve-CokacPath $Config (Get-CokacRequired $Config "TUNNEL_EXE")
-    $configPath = Resolve-CokacPath $Config (Get-CokacRequired $Config "TUNNEL_CONFIG")
-    $name = [System.IO.Path]::GetFileName($exe)
+    $spec = Get-CokacTunnelSpec $Config
+    $name = [System.IO.Path]::GetFileName($spec.executable)
     return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -eq $name -and $_.CommandLine -and $_.CommandLine.IndexOf($configPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+        $_.Name -eq $name -and $_.CommandLine -and $_.CommandLine.IndexOf([string]$spec.identity, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
     })
 }
 

@@ -4,9 +4,7 @@ $ErrorActionPreference = "Stop"
 $config = Read-CokacConfig $ConfigPath
 if (-not (ConvertTo-CokacBool (Get-CokacValue $config "TUNNEL_ENABLED" "false"))) { exit 0 }
 $repo = [System.IO.Path]::GetFullPath((Get-CokacRequired $config "REPO_PATH"))
-$exe = Resolve-CokacPath $config (Get-CokacRequired $config "TUNNEL_EXE")
-$tunnelConfig = Resolve-CokacPath $config (Get-CokacRequired $config "TUNNEL_CONFIG")
-$log = Resolve-CokacPath $config (Get-CokacValue $config "TUNNEL_LOG" "tunnel-cloudflared.log")
+$spec = Get-CokacTunnelSpec $config
 $restartSeconds = [int](Get-CokacValue $config "SUPERVISOR_RESTART_SECONDS" "5")
 Set-Location $repo
 while ($true) {
@@ -16,8 +14,8 @@ while ($true) {
         if ($child) {
             Write-CokacRuntimeLog $config ("tunnel supervisor adopting PID " + $child.Id)
         } else {
-            $child = Start-Process -FilePath $exe -ArgumentList @("--config", $tunnelConfig, "tunnel", "--logfile", $log, "run") -WorkingDirectory $repo -WindowStyle Hidden -PassThru
-            Write-CokacRuntimeLog $config ("tunnel supervisor started PID " + $child.Id)
+            $child = Start-Process -FilePath $spec.executable -ArgumentList $spec.arguments -WorkingDirectory $repo -WindowStyle Hidden -PassThru
+            Write-CokacRuntimeLog $config ("tunnel supervisor started PID " + $child.Id + " mode=" + $spec.mode)
         }
         $child.WaitForExit()
         Write-CokacRuntimeLog $config ("tunnel child PID " + $child.Id + " exited; restarting")
