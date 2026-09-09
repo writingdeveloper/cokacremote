@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Server as HttpServer } from "node:http";
 import { createOAuthMetadata, mcpAuthRouter } from "@modelcontextprotocol/server-legacy/auth";
 import type { AuthRouterOptions } from "@modelcontextprotocol/server-legacy/auth";
@@ -11,7 +11,7 @@ import { BusyError, ConcurrencyGate } from "./concurrency-gate.js";
 import type { AppConfig } from "./config.js";
 import { errorMessage } from "./errors.js";
 import { CimdClientResolver, isCimdClientId, type CimdClientResolverLike } from "./cimd.js";
-import { createMcpServer, REGISTERED_TOOL_COUNT, type McpServices } from "./mcp-server.js";
+import { createMcpServer, REGISTERED_TOOL_COUNT, TOOL_CATALOG_REVISION, type McpServices } from "./mcp-server.js";
 import { OAUTH_SCOPES, RemoteDevOAuthProvider } from "./oauth.js";
 
 export interface RunningHttpServer {
@@ -39,6 +39,26 @@ function rpcMethod(body: unknown): string | undefined {
   return typeof method === "string" ? method : undefined;
 }
 
+function runtimePolicyFingerprint(config: AppConfig): string {
+  const policy = {
+    maxOutputBytes: config.maxOutputBytes,
+    maxRetainedProcessOutputBytes: config.maxRetainedProcessOutputBytes,
+    processRetentionMs: config.processRetentionMs,
+    maxProcesses: config.maxProcesses,
+    maxConcurrentToolCalls: config.maxConcurrentToolCalls,
+    maxConcurrentProcesses: config.maxConcurrentProcesses,
+    maxQueuedRequests: config.maxQueuedRequests,
+    processYieldTimeMs: config.processYieldTimeMs,
+    processPollWaitMs: config.processPollWaitMs,
+    discoveryCacheTtlMs: config.discoveryCacheTtlMs,
+    maxFileChunkBytes: config.maxFileChunkBytes,
+    maxEditFileBytes: config.maxEditFileBytes,
+    maxDirectoryEntries: config.maxDirectoryEntries,
+    oauthRefreshReplayGraceMs: config.oauthRefreshReplayGraceMs,
+  };
+  return createHash("sha256").update(JSON.stringify(policy)).digest("hex").slice(0, 16);
+}
+
 function rpcToolName(body: unknown): string | undefined {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return undefined;
@@ -58,6 +78,7 @@ export async function startHttpServer(
 ): Promise<RunningHttpServer> {
   const serverInstanceId = randomUUID();
   const startedAt = new Date().toISOString();
+  const policyFingerprint = runtimePolicyFingerprint(config);
   let lastMcpRequestAt: string | undefined;
   let mcpRequestCount = 0;
   let mcpAbortedRequestCount = 0;
@@ -254,6 +275,8 @@ export async function startHttpServer(
       mcpAbortedRequestCount,
       mcpErrorResponseCount,
       registeredToolCount: REGISTERED_TOOL_COUNT,
+      toolCatalogRevision: TOOL_CATALOG_REVISION,
+      runtimePolicyFingerprint: policyFingerprint,
       concurrency,
       managedProcesses: processes.running + processes.completedRetained,
       processes,
@@ -361,11 +384,11 @@ export async function startHttpServer(
     listeningServer.once("error", reject);
   });
 
-  console.log(JSON.stringify({ event: "server_lifecycle", phase: "started", serverInstanceId, processId: process.pid, startedAt, registeredToolCount: REGISTERED_TOOL_COUNT }));
+  console.log(JSON.stringify({ event: "server_lifecycle", phase: "started", serverInstanceId, processId: process.pid, startedAt, registeredToolCount: REGISTERED_TOOL_COUNT, toolCatalogRevision: TOOL_CATALOG_REVISION, runtimePolicyFingerprint: policyFingerprint }));
   const heartbeatInterval = setInterval(() => {
     const concurrency = requestGate.stats();
     const processes = services.processManager.stats();
-    console.log(JSON.stringify({ event: "server_heartbeat", serverInstanceId, processId: process.pid, startedAt, at: new Date().toISOString(), lastMcpRequestAt, mcpRequestCount, mcpAbortedRequestCount, mcpErrorResponseCount, activeMcpRequests: concurrency.active, queuedMcpRequests: concurrency.queued, managedProcesses: processes.running + processes.completedRetained, runningProcesses: processes.running }));
+    console.log(JSON.stringify({ event: "server_heartbeat", serverInstanceId, processId: process.pid, startedAt, at: new Date().toISOString(), lastMcpRequestAt, mcpRequestCount, mcpAbortedRequestCount, mcpErrorResponseCount, activeMcpRequests: concurrency.active, queuedMcpRequests: concurrency.queued, managedProcesses: processes.running + processes.completedRetained, runningProcesses: processes.running, toolCatalogRevision: TOOL_CATALOG_REVISION, runtimePolicyFingerprint: policyFingerprint }));
   }, 60_000);
   heartbeatInterval.unref();
 

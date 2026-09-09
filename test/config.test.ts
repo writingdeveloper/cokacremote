@@ -201,4 +201,10 @@ describe("loadConfig", () => {
       ),
     ).toThrow("must not contain user credentials");
   });
+
+  it("parses a server-side directory listing payload cap", () => {
+    expect(loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_MAX_DIRECTORY_ENTRIES: "2500" }, testCwd).maxDirectoryEntries).toBe(2500);
+    expect(() => loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_MAX_DIRECTORY_ENTRIES: "0" }, testCwd)).toThrow(/MCP_MAX_DIRECTORY_ENTRIES/);
+  });
+
 });

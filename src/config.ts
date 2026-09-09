@@ -34,6 +34,7 @@ export interface AppConfig {
   discoveryCacheTtlMs: number;
   maxFileChunkBytes: number;
   maxEditFileBytes: number;
+  maxDirectoryEntries: number;
   wakatimeEnabled: boolean;
   wakatimeCli: string | undefined;
   wakatimeHome: string | undefined;
@@ -277,6 +278,13 @@ export function loadConfig(
       64 * 1024 * 1024,
       "MCP_MAX_EDIT_FILE_BYTES",
       4096,
+    ),
+    maxDirectoryEntries: parseInteger(
+      env.MCP_MAX_DIRECTORY_ENTRIES,
+      5000,
+      "MCP_MAX_DIRECTORY_ENTRIES",
+      1,
+      50_000,
     ),
     wakatimeEnabled: parseBoolean(env.MCP_WAKATIME_ENABLED, false),
     wakatimeCli: env.MCP_WAKATIME_CLI?.trim() || undefined,

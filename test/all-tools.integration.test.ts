@@ -25,6 +25,7 @@ const ALL_TOOLS = [
   "make_directory",
   "move_path",
   "read_file",
+  "read_image",
   "read_process",
   "remove_path",
   "replace_in_file",
@@ -53,6 +54,7 @@ const EXPECTED_ANNOTATIONS = {
   make_directory: [false, false, true, false],
   move_path: [false, true, true, false],
   read_file: [true, false, true, false],
+  read_image: [true, false, true, false],
   read_process: [true, false, true, false],
   remove_path: [false, true, true, false],
   replace_in_file: [false, true, false, false],
@@ -695,6 +697,11 @@ describe.sequential("all registered MCP tools", () => {
     });
     expect(normalizeTextNewlines(String(threeWayValue.content))).toBe("three-way-result\n");
   }, 120_000);
+
+  it("rejects invalid native image content without mutating files", async () => {
+    await callOk("write_file", { path: "not-image.png", content: "not-an-image" });
+    expect(await callError("read_image", { path: "not-image.png" })).toMatch(/image|signature|PNG|JPEG/i);
+  });
 
   it("transfers, hashes, copies, moves, and removes isolated paths", async () => {
     await callOk("make_directory", {

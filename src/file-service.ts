@@ -36,6 +36,7 @@ export interface FileServiceOptions {
   maxChunkBytes: number;
   maxEditFileBytes: number;
   maxOutputBytes: number;
+  maxDirectoryEntries?: number;
   activityTracker?: WakaTimeTracker;
 }
 
@@ -45,6 +46,8 @@ export interface ListDirectoryOptions {
   maxEntries?: number;
   includeHidden?: boolean;
   includeMetadata?: boolean;
+  nameContains?: string | undefined;
+  types?: Array<DirectoryEntryResult["type"]> | undefined;
 }
 
 interface DirectoryEntryResult {
@@ -370,7 +373,10 @@ export class FileService {
     const root = this.resolve(inputPath, cwd);
     const recursive = options.recursive ?? false;
     const maxDepth = Math.max(0, Math.min(options.maxDepth ?? 8, 100));
-    const maxEntries = Math.max(1, Math.min(options.maxEntries ?? 1000, 50_000));
+    const requestedMaxEntries = Math.max(1, Math.min(options.maxEntries ?? 1000, 50_000));
+    const effectiveMaxEntries = Math.min(requestedMaxEntries, this.#options.maxDirectoryEntries ?? 5000);
+    const nameContains = options.nameContains?.toLocaleLowerCase();
+    const types = options.types && options.types.length > 0 ? new Set(options.types) : undefined;
     const includeHidden = options.includeHidden ?? true;
     const includeMetadata = options.includeMetadata ?? false;
     const entries: DirectoryEntryResult[] = [];
@@ -386,10 +392,6 @@ export class FileService {
         if (!includeHidden && entry.name.startsWith(".")) {
           continue;
         }
-        if (entries.length >= maxEntries) {
-          truncated = true;
-          return;
-        }
         const absolutePath = path.join(directory, entry.name);
         const relativePath = path.relative(root, absolutePath) || entry.name;
         const info = await lstat(absolutePath);
@@ -399,12 +401,21 @@ export class FileService {
           name: entry.name,
           type: typeFromStats(info),
         };
-        if (includeMetadata) {
-          result.size = info.size;
-          result.mode = `0${(info.mode & 0o7777).toString(8)}`;
-          result.modifiedAt = info.mtime.toISOString();
+        const matches =
+          (!nameContains || entry.name.toLocaleLowerCase().includes(nameContains)) &&
+          (!types || types.has(result.type));
+        if (matches) {
+          if (entries.length >= effectiveMaxEntries) {
+            truncated = true;
+            return;
+          }
+          if (includeMetadata) {
+            result.size = info.size;
+            result.mode = `0${(info.mode & 0o7777).toString(8)}`;
+            result.modifiedAt = info.mtime.toISOString();
+          }
+          entries.push(result);
         }
-        entries.push(result);
         if (recursive && info.isDirectory() && depth < maxDepth) {
           await visit(absolutePath, depth + 1);
         }
@@ -417,6 +428,8 @@ export class FileService {
       entries,
       count: entries.length,
       truncated,
+      requestedMaxEntries,
+      effectiveMaxEntries,
     };
   }
 
@@ -469,6 +482,25 @@ export class FileService {
     }
   }
 
+  async #assertExpectedSha256(resolvedPath: string, expectedSha256: string | undefined): Promise<void> {
+    if (expectedSha256 === undefined) return;
+    if (!/^[a-fA-F0-9]{64}$/.test(expectedSha256)) {
+      throw new Error("expectedSha256 must be a 64-character SHA-256 hex digest");
+    }
+    const info = await stat(resolvedPath);
+    if (!info.isFile()) throw new Error("SHA-256 preconditions are supported only for regular files");
+    const hash = createHash("sha256");
+    await new Promise<void>((resolve, reject) => {
+      const stream = createReadStream(resolvedPath);
+      stream.on("data", (chunk) => hash.update(chunk));
+      stream.on("error", reject);
+      stream.on("end", resolve);
+    });
+    if (hash.digest("hex").toLowerCase() !== expectedSha256.toLowerCase()) {
+      throw new Error(`SHA-256 precondition failed for ${resolvedPath}; file changed since it was read`);
+    }
+  }
+
   async writeFileContent(
     inputPath: string,
     cwd: string | undefined,
@@ -477,8 +509,10 @@ export class FileService {
     mode: "overwrite" | "append",
     createParents: boolean,
     fileMode?: number,
+    expectedSha256?: string,
   ): Promise<Record<string, unknown>> {
     const resolvedPath = this.resolve(inputPath, cwd);
+    await this.#assertExpectedSha256(resolvedPath, expectedSha256);
     const data = decodeContent(content, encoding);
     let before: Buffer | undefined;
     try {
@@ -600,11 +634,13 @@ export class FileService {
     newText: string,
     replaceAll: boolean,
     expectedOccurrences: number | undefined,
+    expectedSha256?: string,
   ): Promise<Record<string, unknown>> {
     if (oldText.length === 0) {
       throw new Error("oldText must not be empty");
     }
     const resolvedPath = this.resolve(inputPath, cwd);
+    await this.#assertExpectedSha256(resolvedPath, expectedSha256);
     const info = await stat(resolvedPath);
     if (info.size > this.#options.maxEditFileBytes) {
       throw new Error(
@@ -855,8 +891,10 @@ export class FileService {
     cwd: string | undefined,
     recursive: boolean,
     force: boolean,
+    expectedSha256?: string,
   ): Promise<Record<string, unknown>> {
     const resolvedPath = this.resolve(inputPath, cwd);
+    if (expectedSha256 !== undefined) await this.#assertExpectedSha256(resolvedPath, expectedSha256);
     let before: Buffer | undefined;
     let wasFile = false;
     try {

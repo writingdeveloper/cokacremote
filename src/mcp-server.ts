@@ -3,10 +3,12 @@ import type { AppConfig } from "./config.js";
 import { registerExecTools } from "./exec-tools.js";
 import { FileService } from "./file-service.js";
 import { registerFileTools } from "./file-tools.js";
+import { registerImageTools } from "./image-tools.js";
 import { ProcessManager } from "./process-manager.js";
 import { WakaTimeTracker } from "./wakatime-tracker.js";
 
-export const REGISTERED_TOOL_COUNT = 22;
+export const REGISTERED_TOOL_COUNT = 23;
+export const TOOL_CATALOG_REVISION = "core-2026-09-09.2";
 
 export interface McpServices {
   processManager: ProcessManager;
@@ -40,6 +42,7 @@ export function createServices(config: AppConfig): McpServices {
       maxChunkBytes: config.maxFileChunkBytes,
       maxEditFileBytes: config.maxEditFileBytes,
       maxOutputBytes: config.maxOutputBytes,
+      maxDirectoryEntries: config.maxDirectoryEntries,
       activityTracker: wakatimeTracker,
     }),
     wakatimeTracker,
@@ -71,5 +74,6 @@ export function createMcpServer(config: AppConfig, services: McpServices): McpSe
     services.wakatimeTracker,
   );
   registerFileTools(server, config, services.fileService);
+  registerImageTools(server, config);
   return server;
 }

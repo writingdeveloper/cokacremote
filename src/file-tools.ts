@@ -75,11 +75,13 @@ export function registerFileTools(
                 .boolean()
                 .default(false)
                 .describe("Include size, Unix mode, and modification time for each entry."),
+              nameContains: z.string().max(256).optional().describe("Return entries whose basename contains this text, case-insensitively. Recursive traversal still descends through non-matching directories."),
+              types: z.array(z.enum(["file", "directory", "symlink", "other"])).max(4).optional().describe("Return only these path types. Recursive traversal still descends through directories even when directory is not selected."),
             }),
       annotations: TOOL_ANNOTATIONS.readOnlyClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, recursive, maxDepth, maxEntries, includeHidden, includeMetadata }) =>
+    async ({ path, cwd, recursive, maxDepth, maxEntries, includeHidden, includeMetadata, nameContains, types }) =>
       runTool(() =>
         files.listDirectory(path, cwd, {
           recursive,
@@ -87,6 +89,8 @@ export function registerFileTools(
           maxEntries,
           includeHidden,
           includeMetadata,
+          nameContains,
+          types,
         }),
       ),
   );
@@ -174,11 +178,12 @@ export function registerFileTools(
               fileMode: fileModeSchema.describe(
                 "Unix mode as an octal string, for example 0644. When provided, it is applied to both new and existing files.",
               ),
+              expectedSha256: z.string().regex(/^[a-fA-F0-9]{64}$/).optional().describe("Optional SHA-256 precondition. The operation fails before mutation if the current regular file no longer matches this digest."),
             }),
       annotations: TOOL_ANNOTATIONS.destructiveNonIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, content, encoding, mode, createParents, fileMode }) =>
+    async ({ path, cwd, content, encoding, mode, createParents, fileMode, expectedSha256 }) =>
       runTool(() =>
         files.writeFileContent(
           path,
@@ -188,6 +193,7 @@ export function registerFileTools(
           mode,
           createParents,
           parseMode(fileMode),
+          expectedSha256,
         ),
       ),
   );
@@ -218,11 +224,12 @@ export function registerFileTools(
                 .describe(
                   "Required total oldText occurrence count before editing. When omitted, the default is one for a single replacement and the observed count for replaceAll=true.",
                 ),
+              expectedSha256: z.string().regex(/^[a-fA-F0-9]{64}$/).optional().describe("Optional SHA-256 precondition. The operation fails before mutation if the current regular file no longer matches this digest."),
             }),
       annotations: TOOL_ANNOTATIONS.destructiveNonIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, oldText, newText, replaceAll, expectedOccurrences }) =>
+    async ({ path, cwd, oldText, newText, replaceAll, expectedOccurrences, expectedSha256 }) =>
       runTool(() =>
         files.replaceInFile(
           path,
@@ -231,6 +238,7 @@ export function registerFileTools(
           newText,
           replaceAll,
           expectedOccurrences,
+          expectedSha256,
         ),
       ),
   );
@@ -433,12 +441,13 @@ export function registerFileTools(
                 .boolean()
                 .default(false)
                 .describe("Ignore a missing target. This does not suppress other filesystem errors."),
+              expectedSha256: z.string().regex(/^[a-fA-F0-9]{64}$/).optional().describe("Optional SHA-256 precondition. The operation fails before mutation if the current regular file no longer matches this digest."),
             }),
       annotations: TOOL_ANNOTATIONS.destructiveIdempotentClosed,
       _meta: authMetadata,
     },
-    async ({ path, cwd, recursive, force }) =>
-      runTool(() => files.removePath(path, cwd, recursive, force)),
+    async ({ path, cwd, recursive, force, expectedSha256 }) =>
+      runTool(() => files.removePath(path, cwd, recursive, force, expectedSha256)),
   );
 
   server.registerTool(

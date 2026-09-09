@@ -445,6 +445,8 @@ describe("remote development MCP server", () => {
       mcpAbortedRequestCount: 0,
       mcpErrorResponseCount: expect.any(Number),
       registeredToolCount: REGISTERED_TOOL_COUNT,
+      toolCatalogRevision: expect.stringMatching(/^core-/),
+      runtimePolicyFingerprint: expect.stringMatching(/^[a-f0-9]{16}$/),
       managedProcesses: expect.any(Number),
       processes: {
         running: expect.any(Number),

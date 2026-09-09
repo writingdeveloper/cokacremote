@@ -292,4 +292,37 @@ describe("FileService", () => {
       "valuable",
     );
   });
+
+  it("caps and filters large directory listings without blocking traversal", async () => {
+    files = new FileService({
+      defaultCwd: temporaryDirectory,
+      maxChunkBytes: 1024 * 1024,
+      maxEditFileBytes: 1024 * 1024,
+      maxOutputBytes: 1024 * 1024,
+      maxDirectoryEntries: 3,
+    });
+    await files.makeDirectory("nested", undefined, true);
+    for (const name of ["keep-a.txt", "skip.bin", "nested/keep-b.txt", "nested/keep-c.txt", "nested/keep-d.txt"]) {
+      await files.writeFileContent(name, undefined, name, "utf8", "overwrite", true);
+    }
+    const result = await files.listDirectory(".", undefined, {
+      recursive: true,
+      maxEntries: 50_000,
+      nameContains: "keep-",
+      types: ["file"],
+    });
+    expect(result).toMatchObject({count: 3, truncated: true, requestedMaxEntries: 50000, effectiveMaxEntries: 3});
+    expect((result.entries as Array<{name:string}>).every((entry) => entry.name.includes("keep-"))).toBe(true);
+  });
+
+  it("supports SHA-256 preconditions for concurrent file edits and deletion", async () => {
+    await files.writeFileContent("guarded.txt", undefined, "v1", "utf8", "overwrite", true);
+    const first = await files.hashFile("guarded.txt", undefined, "sha256");
+    await files.writeFileContent("guarded.txt", undefined, "other session", "utf8", "overwrite", true);
+    await expect(files.writeFileContent("guarded.txt", undefined, "stale overwrite", "utf8", "overwrite", true, undefined, String(first.digest))).rejects.toThrow(/sha-?256|changed/i);
+    await expect(files.replaceInFile("guarded.txt", undefined, "other", "mine", false, 1, String(first.digest))).rejects.toThrow(/sha-?256|changed/i);
+    await expect(files.removePath("guarded.txt", undefined, false, false, String(first.digest))).rejects.toThrow(/sha-?256|changed/i);
+    expect(await readFile(path.join(temporaryDirectory, "guarded.txt"), "utf8")).toBe("other session");
+  });
+
 });
