@@ -1,6 +1,6 @@
 # cokacremote
 
-`cokacremote` lets ChatGPT or another MCP client work directly on a remote Linux server.
+`cokacremote` lets ChatGPT or another MCP client work directly on a remote Linux or Windows development host.
 
 In simple terms, it gives an AI client tools to do things you would normally do over SSH: run shell commands, inspect logs, edit files, install packages, build projects, and manage services.
 
@@ -14,7 +14,7 @@ ChatGPT or another MCP client
        cokacremote
             |
             v
-       Linux server
+       Linux / Windows host
        |- run commands
        |- read/write files
        |- install packages
@@ -22,17 +22,17 @@ ChatGPT or another MCP client
        `- manage processes and services
 ```
 
-You can run `cokacremote` continuously on a VPS or EC2 instance and connect to it remotely over MCP Streamable HTTP.
+You can run `cokacremote` continuously on a VPS, EC2 instance, or Windows workstation and connect to it remotely over MCP Streamable HTTP.
 
 > [!WARNING]
 > `cokacremote` is intentionally powerful. It has no sandbox, command allowlist, execution approval, or path restrictions. If the service runs as `root`, an authenticated MCP client can change or delete anything on the server. Use HTTPS, strong authentication, and only connect trusted clients.
 
 ## Quick start
 
-If you already have a Linux server and Node.js 22+, the shortest local test is:
+On Linux with Node.js 22+, the shortest local test is:
 
 ```bash
-git clone https://github.com/kstost/cokacremote.git
+git clone https://github.com/writingdeveloper/cokacremote.git
 cd cokacremote
 npm install
 npm run build
@@ -67,7 +67,7 @@ Typical tasks include:
 - "Install Node.js packages and build the project."
 - "Upload a file, verify its hash, and move it into place."
 
-Internally, these actions are provided through 20 MCP tools for shell execution, long-running processes, and filesystem operations.
+Internally, these actions are provided through 27 MCP tools covering shell execution, long-running processes, filesystem/image operations, process cleanup, and bounded local media review.
 
 ## How it works
 
@@ -194,12 +194,23 @@ Process output is cursor-paginated: pass the previous `nextSeq` as `afterSeq` un
 
 `/health` also exposes a `serverInstanceId`, process ID/start time, last MCP request time, request/abort/error counters, and registered tool count. Runtime logs emit structured `server_lifecycle`, `server_heartbeat`, and `mcp_request` records. MCP request records include the protocol version and `Mcp-Session-Id` when a client sends them; stateless clients are expected to omit a session ID. Internal MCP handler/transport errors include the JavaScript stack when available. These fields are intended to distinguish an actual server/transport restart from client-side connector registry or schema-injection churn.
 
+### Runtime doctor and connector-cache diagnosis
+
+After `npm run build`, run the built-in doctor against a local or public endpoint:
+
+```bash
+npm run doctor -- --url http://127.0.0.1:3000
+npm run doctor -- --url https://mcp.example.com --json
+```
+
+The doctor verifies the live tool count/catalog revision, process capacity, OAuth protected-resource metadata, and local FFmpeg/ffprobe/Blender availability. `/health` also exposes `catalogDiscovery`, which counts successful/failed `server/discover` and `tools/list` requests and records the last method, protocol version, success time, and advertised cache TTL. If ordinary MCP calls reach a fresh server instance but no catalog request does, the doctor reports a warning that a client-side cached manifest is plausible rather than misclassifying the server itself as unhealthy. Use `--skip-media` when only transport/catalog diagnosis is needed.
+
 The client-facing tool schemas are intentionally deployment-stable across ChatGPT Web runtime budget profiles. `maxOutputBytes` and file-chunk requests advertise stable 1 MiB client maxima, while the active server clamps the returned bytes to its configured runtime budget. Timing defaults are likewise applied inside the tool handler rather than embedded as profile-specific JSON Schema defaults. This prevents a cached ChatGPT tool manifest from disagreeing with a newly restarted server that uses a different response budget.
 
 ## Requirements
 
 - Node.js 22 or later and npm
-- Linux recommended; the provided production deployment examples target systemd and Nginx
+- Linux and Windows are supported; deployment examples include systemd/Nginx and a Windows Scheduled Task supervisor/watchdog
 - Git for `apply_patch`
 - OpenSSL for key generation
 - Python 3 if Python execution through `run_script` is needed
