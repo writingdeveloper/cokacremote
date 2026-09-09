@@ -13,8 +13,10 @@ describe("loadConfig", () => {
       {
         MCP_AUTH_TOKEN: "secret",
         MCP_MAX_CONCURRENT_TOOL_CALLS: "3",
+        MCP_MAX_CONCURRENT_CONTROL_CALLS: "2",
         MCP_MAX_CONCURRENT_PROCESSES: "5",
         MCP_MAX_QUEUED_REQUESTS: "7",
+        MCP_MAX_QUEUED_CONTROL_REQUESTS: "5",
         MCP_PROCESS_YIELD_TIME_MS: "25000",
         MCP_PROCESS_POLL_WAIT_MS: "20000",
         MCP_OAUTH_REFRESH_REPLAY_GRACE_MS: "10000",
@@ -24,8 +26,10 @@ describe("loadConfig", () => {
 
     expect(config).toMatchObject({
       maxConcurrentToolCalls: 3,
+      maxConcurrentControlCalls: 2,
       maxConcurrentProcesses: 5,
       maxQueuedRequests: 7,
+      maxQueuedControlRequests: 5,
       processYieldTimeMs: 25000,
       processPollWaitMs: 20000,
       oauthRefreshReplayGraceMs: 10000,
@@ -72,8 +76,10 @@ describe("loadConfig", () => {
       processRetentionMs: 900000,
       maxProcesses: 64,
       maxConcurrentToolCalls: 8,
+      maxConcurrentControlCalls: 4,
       maxConcurrentProcesses: 16,
       maxQueuedRequests: 32,
+      maxQueuedControlRequests: 16,
       processYieldTimeMs: 30000,
       processPollWaitMs: 30000,
       discoveryCacheTtlMs: 86400000,
