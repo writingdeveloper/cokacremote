@@ -6,6 +6,7 @@ import type { AuthInfo, OAuthClientInformationFull, OAuthTokenRevocationRequest,
 import { InvalidClientMetadataError, InvalidGrantError, InvalidScopeError, InvalidTargetError, UnauthorizedClientError, redirectUriMatches } from "@modelcontextprotocol/server-legacy/auth";
 import type { OAuthRegisteredClientsStore, AuthorizationParams, OAuthServerProvider } from "@modelcontextprotocol/server-legacy/auth";
 import type { Request, Response } from "express";
+import escapeHtml from "escape-html";
 
 import { tokensEqual } from "./auth.js";
 import type { CimdClientResolverLike } from "./cimd.js";
@@ -429,14 +430,6 @@ class PersistentOAuthStore implements OAuthRegisteredClientsStore {
   }
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
 
 function hiddenInput(name: string, value: string | undefined): string {
   return value === undefined
