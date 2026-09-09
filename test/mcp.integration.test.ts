@@ -169,6 +169,31 @@ describe("remote development MCP server", () => {
     expect(payload.result?.tools?.every((tool) => tool.execution?.taskSupport === undefined)).toBe(true);
     expect(payload.result?.ttlMs).toBe(86_400_000);
     expect(payload.result?.cacheScope).toBe("private");
+
+    const health = (await (await fetch(new URL("/health", endpoint))).json()) as {
+      catalogDiscovery?: {
+        requestCount?: number;
+        successCount?: number;
+        failureCount?: number;
+        lastRequestAt?: string;
+        lastSuccessAt?: string;
+        lastMethod?: string;
+        lastProtocolVersion?: string;
+        cacheTtlMs?: number;
+      };
+    };
+    expect(health.catalogDiscovery).toMatchObject({
+      requestCount: expect.any(Number),
+      successCount: expect.any(Number),
+      failureCount: 0,
+      lastRequestAt: expect.any(String),
+      lastSuccessAt: expect.any(String),
+      lastMethod: "tools/list",
+      lastProtocolVersion: "2026-07-28",
+      cacheTtlMs: 86_400_000,
+    });
+    expect(health.catalogDiscovery!.requestCount!).toBeGreaterThanOrEqual(2);
+    expect(health.catalogDiscovery!.successCount!).toBeGreaterThanOrEqual(2);
   });
 
   it("lists tools and executes script and file workflows", async () => {

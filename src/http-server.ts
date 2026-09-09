@@ -91,6 +91,23 @@ export async function startHttpServer(
   let mcpRequestCount = 0;
   let mcpAbortedRequestCount = 0;
   let mcpErrorResponseCount = 0;
+  let catalogRequestCount = 0;
+  let catalogSuccessCount = 0;
+  let catalogFailureCount = 0;
+  let lastCatalogRequestAt: string | undefined;
+  let lastCatalogSuccessAt: string | undefined;
+  let lastCatalogMethod: "server/discover" | "tools/list" | undefined;
+  let lastCatalogProtocolVersion: string | undefined;
+  const catalogDiscoveryStatus = () => ({
+    requestCount: catalogRequestCount,
+    successCount: catalogSuccessCount,
+    failureCount: catalogFailureCount,
+    lastRequestAt: lastCatalogRequestAt,
+    lastSuccessAt: lastCatalogSuccessAt,
+    lastMethod: lastCatalogMethod,
+    lastProtocolVersion: lastCatalogProtocolVersion,
+    cacheTtlMs: config.discoveryCacheTtlMs,
+  });
   const app = express();
   app.disable("x-powered-by");
   if (config.trustProxyHops > 0) {
@@ -119,6 +136,19 @@ export async function startHttpServer(
       if (response.statusCode >= 400) {
         mcpErrorResponseCount += 1;
       }
+      const method = rpcMethod(request.body);
+      if (method === "server/discover" || method === "tools/list") {
+        catalogRequestCount += 1;
+        lastCatalogRequestAt = requestAt;
+        lastCatalogMethod = method;
+        lastCatalogProtocolVersion = request.header("mcp-protocol-version") ?? undefined;
+        if (outcome === "completed" && response.statusCode < 400) {
+          catalogSuccessCount += 1;
+          lastCatalogSuccessAt = requestAt;
+        } else {
+          catalogFailureCount += 1;
+        }
+      }
       console.log(
         JSON.stringify({
           event: "mcp_request",
@@ -127,7 +157,7 @@ export async function startHttpServer(
           requestId,
           requestAt,
           httpMethod: request.method,
-          rpcMethod: rpcMethod(request.body),
+          rpcMethod: method,
           toolName: rpcToolName(request.body),
           protocolVersion: request.header("mcp-protocol-version") ?? undefined,
           sessionId: request.header("mcp-session-id") ?? undefined,
@@ -287,6 +317,7 @@ export async function startHttpServer(
       mcpRequestCount,
       mcpAbortedRequestCount,
       mcpErrorResponseCount,
+      catalogDiscovery: catalogDiscoveryStatus(),
       registeredToolCount: REGISTERED_TOOL_COUNT,
       toolCatalogRevision: TOOL_CATALOG_REVISION,
       runtimePolicyFingerprint: policyFingerprint,
@@ -404,7 +435,7 @@ export async function startHttpServer(
     const concurrency = requestGate.stats();
     const controlConcurrency = controlGate.stats();
     const processes = services.processManager.stats();
-    console.log(JSON.stringify({ event: "server_heartbeat", serverInstanceId, processId: process.pid, startedAt, at: new Date().toISOString(), lastMcpRequestAt, mcpRequestCount, mcpAbortedRequestCount, mcpErrorResponseCount, activeMcpRequests: concurrency.active + controlConcurrency.active, queuedMcpRequests: concurrency.queued + controlConcurrency.queued, managedProcesses: processes.running + processes.completedRetained, runningProcesses: processes.running, concurrency, controlConcurrency, toolCatalogRevision: TOOL_CATALOG_REVISION, runtimePolicyFingerprint: policyFingerprint }));
+    console.log(JSON.stringify({ event: "server_heartbeat", serverInstanceId, processId: process.pid, startedAt, at: new Date().toISOString(), lastMcpRequestAt, mcpRequestCount, mcpAbortedRequestCount, mcpErrorResponseCount, catalogDiscovery: catalogDiscoveryStatus(), activeMcpRequests: concurrency.active + controlConcurrency.active, queuedMcpRequests: concurrency.queued + controlConcurrency.queued, managedProcesses: processes.running + processes.completedRetained, runningProcesses: processes.running, concurrency, controlConcurrency, toolCatalogRevision: TOOL_CATALOG_REVISION, runtimePolicyFingerprint: policyFingerprint }));
   }, 60_000);
   heartbeatInterval.unref();
 
