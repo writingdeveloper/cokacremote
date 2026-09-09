@@ -8,8 +8,9 @@
 - Catalog cache correction: `83d8586` — ChatGPT Web discovery cache hint reduced from 24 hours to 5 minutes.
 - Final media artifact cleanup: `65e2481` — internal `job.json` / `asset-request.json` are not advertised as review artifacts.
 - Windows watchdog UX fix: `ce306e4` — the repeating watchdog is launched through `wscript.exe` so it does not flash a PowerShell console window.
+- Catalog-drift watchdog hardening: `7d0fc12` — Windows health now verifies the expected tool count/catalog revision even when `/health` returns HTTP 200, and uninstall can remove matching orphan server/tunnel children when given its runtime config.
 
-The current 4080 production runtime is based on `ce306e4`. The initial rollout used clean worktrees so unrelated source changes were not destroyed. During the final 4080 reconciliation, the previous dirty `main` state was preserved in a backup branch and stash before `main` itself was promoted to the verified rollout history.
+The current 4080 operational checkout is based on `7d0fc12`. The running Node application is TypeScript-runtime-equivalent to `ce306e4`; `7d0fc12` changes Windows deployment controls, tests and documentation, so no additional Node recycle was required. The initial rollout used clean worktrees so unrelated source changes were not destroyed. During the final 4080 reconciliation, the previous dirty `main` state was preserved in a backup branch and stash before `main` itself was promoted to the verified rollout history.
 
 ## Production parity
 
@@ -73,6 +74,25 @@ Post-recycle local and public 4080 health both report:
 
 This closes the source/runtime split that allowed a later build from `main` to undo a previously successful production rollout.
 
+## 4080 catalog-drift invariant hardening
+
+A second production failure mode remained after source/runtime realignment: the old watchdog considered any HTTP 200 health response healthy. That meant a later accidental rollback to the earlier 21-tool build could remain permanently "healthy" even though the connector catalog had regressed.
+
+Commit `7d0fc12` closes that gap:
+
+- `EXPECTED_TOOL_COUNT` and `EXPECTED_CATALOG_REVISION` are optional Windows runtime invariants.
+- `status.ps1` reports actual vs expected tool count/revision plus a mismatch reason.
+- `watchdog.ps1` treats an HTTP-200 catalog mismatch exactly like another health failure and recycles the server after two consecutive failures.
+- the regression test reproduces the real incident with HTTP 200, 21 tools and a legacy catalog revision; it must cause a task restart when 27 / `core-media-2026-09-09.1` is expected.
+- `uninstall.ps1 -ConfigPath ...` removes matching server/tunnel child processes as well as Scheduled Tasks, fixing an orphan-process bug discovered while exercising the watchdog regression.
+
+The private 4080 runtime config now enforces:
+
+- expected tool count: 27
+- expected catalog revision: `core-media-2026-09-09.1`
+
+Live invariant-aware status after activation reported `health=True`, `tools=27/27`, exact catalog match, PID 50448, one matching server process, zero duplicates, and watchdog `LastTaskResult=0`. A manual watchdog pass also preserved the same healthy PID.
+
 ## Connector-disappearance root causes addressed
 
 ### 1. Tool execution could starve discovery
@@ -132,11 +152,11 @@ Actions supported through `media_submit`:
 - `asset_audit`
 - `asset_preview`
 
-Production CLI smoke on both machines successfully generated an `image_review` preview from a local synthetic PNG. Final smoke result was `completed`, `acceptance=NOT_REVIEWED`, `preview.jpg` present, and no internal bookkeeping JSON advertised as an artifact. Both machines reported FFmpeg, ffprobe and Blender available; notebook observed FFmpeg 8.1.1 and Blender 5.2.0 LTS during the smoke.
+Production CLI smoke on both machines successfully generated an `image_review` preview from a local synthetic PNG. A fresh post-realignment 4080 smoke also completed job `9f1b4dba-2b42-4e50-b88a-fd6a8b6f3782` through the production `dist`, with `acceptance=NOT_REVIEWED`, `preview.jpg` present, and no internal bookkeeping JSON advertised as an artifact. 4080 reported FFmpeg/ffprobe 8.1.1 and Blender 5.2 LTS available; notebook reported the same major toolchain during rollout smoke.
 
 ## Verification evidence
 
-Verified runtime source HEAD `ce306e4` before this documentation-only recovery note:
+Verified operational source HEAD `7d0fc12` before this documentation-only evidence update:
 
 - test files: 25
 - tests: 117 passed / 0 failed
