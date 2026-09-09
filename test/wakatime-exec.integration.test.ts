@@ -51,7 +51,10 @@ describe("exec tool WakaTime integration", () => {
       {
         MCP_AUTH_TOKEN: "test-secret",
         MCP_DEFAULT_CWD: directory,
-        MCP_DEFAULT_SHELL: "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+        MCP_DEFAULT_SHELL:
+          process.platform === "win32"
+            ? "C:\\Program Files\\Git\\usr\\bin\\bash.exe"
+            : "/bin/bash",
         MCP_WAKATIME_ENABLED: "true",
         MCP_WAKATIME_CLI: "wakatime-test-cli",
       },

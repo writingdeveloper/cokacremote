@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
-import { MediaRequestSchema, executeReview, mediaCapabilities, localInput } from '../src/media/engine.js';
+import { MediaRequestSchema, blenderSupportsOfflineMode, executeReview, mediaCapabilities, localInput } from '../src/media/engine.js';
 
 let root: string;
 const ffmpeg = process.env.MCP_MEDIA_FFMPEG || 'ffmpeg';
@@ -30,6 +30,13 @@ beforeAll(async () => {
 afterAll(async()=>{await rm(root,{recursive:true,force:true});});
 
 describe('bounded local media engine',()=>{
+  it('uses Blender offline mode only when the installed CLI supports it',()=>{
+    expect(blenderSupportsOfflineMode('Blender 3.4.1')).toBe(false);
+    expect(blenderSupportsOfflineMode('Blender 4.1.1')).toBe(false);
+    expect(blenderSupportsOfflineMode('Blender 4.2.0')).toBe(true);
+    expect(blenderSupportsOfflineMode('Blender 5.2.0 LTS')).toBe(true);
+    expect(blenderSupportsOfflineMode('unknown')).toBe(false);
+  });
   it('reports actual tools without claiming client audio support',async()=>{
     const r=await mediaCapabilities();
     expect(r.ffmpeg.available).toBe(true); expect(r.ffprobe.available).toBe(true);

@@ -81,6 +81,25 @@ function executables(){
     ['5.2','5.1','5.0','4.5','4.4','4.3','4.2'].map(v=>`C:/Program Files/Blender Foundation/Blender ${v}/blender.exe`).find(existsSync) || 'blender' : 'blender');
   return {ffmpeg:process.env.MCP_MEDIA_FFMPEG||'ffmpeg',ffprobe:process.env.MCP_MEDIA_FFPROBE||'ffprobe',blender};
 }
+export function blenderSupportsOfflineMode(versionOutput:string):boolean {
+  const match=/\bBlender\s+(\d+)\.(\d+)/i.exec(versionOutput);
+  if(!match)return false;
+  const major=Number(match[1]); const minor=Number(match[2]);
+  return major>4 || (major===4 && minor>=2);
+}
+async function blenderSafetyArgs(executable:string):Promise<{args:string[];offlineMode:boolean}> {
+  let offlineMode=false;
+  try {
+    const version=await runBounded(executable,['--version'],{timeoutMs:8000,maxBytes:32000});
+    offlineMode=blenderSupportsOfflineMode(`${version.stdout}\n${version.stderr}`);
+  } catch {
+    // Let the actual bounded Blender invocation produce the canonical dependency error.
+  }
+  return {
+    args:['--background','--factory-startup','--disable-autoexec',...(offlineMode?['--offline-mode']:[])],
+    offlineMode,
+  };
+}
 export async function mediaCapabilities(){
   const bins=executables();
   const check=async(name:keyof typeof bins)=>{
@@ -147,7 +166,10 @@ export async function executeReview(request:MediaRequest,dir:string):Promise<Rev
     if(!ASSET_EXT.has(ext))throw new Error('A supported 3D asset file is required.');
     await writeFile(out('blender-review.py'),BLENDER_REVIEW_SCRIPT);
     await writeFile(out('asset-request.json'),JSON.stringify({path:sourcePath,outputDirectory:dir,preview:r.action==='asset_preview',resolution:Math.min(768,r.resolution),objectName:r.objectName,animationFrame:r.animationFrame}));
-    await runBounded(executables().blender,['--background','--factory-startup','--disable-autoexec','--offline-mode','--threads','2','--python-exit-code','7','--python',out('blender-review.py'),'--',out('asset-request.json')],{timeoutMs:240000,maxBytes:2*1024*1024});
+    const blenderExecutable=executables().blender;
+    const blenderSafety=await blenderSafetyArgs(blenderExecutable);
+    if(!blenderSafety.offlineMode) report.warnings.push('Installed Blender predates 4.2 or could not verify --offline-mode support; auto-execution remains disabled, but OS-level network isolation is not provided.');
+    await runBounded(blenderExecutable,[...blenderSafety.args,'--threads','2','--python-exit-code','7','--python',out('blender-review.py'),'--',out('asset-request.json')],{timeoutMs:240000,maxBytes:2*1024*1024});
     const audit=await readFile(out('asset-audit.json'),'utf8');if(audit.length>2*1024*1024)throw new Error('Asset audit exceeded report budget.');
     report.asset=JSON.parse(audit); report.warnings.push('Base mesh topology only; modifier evaluation, visual likeness, animation quality and engine import acceptance are separate checks.');
     for(const n of await readdir(dir))if(/^view-.*\.png$/.test(n))await jpeg(out(n),out(n.replace('.png','.jpg')),768);

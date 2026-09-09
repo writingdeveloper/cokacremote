@@ -204,6 +204,10 @@ describe("ProcessManager", () => {
       expect((error as NodeJS.ErrnoException).code).toBe("ESRCH");
     }
 
+    const reconcileDeadline = Date.now() + 2_000;
+    while (manager.stats().running !== 0 && Date.now() < reconcileDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
     expect(manager.stats().running).toBe(0);
     expect(manager.stats().runningCapacity).toBe(1);
     const replacement = manager.start({

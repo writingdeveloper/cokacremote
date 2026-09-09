@@ -51,6 +51,13 @@ export interface WakaTimeTrackerOptions {
 
 const HEARTBEAT_DEDUP_MS = 120_000;
 
+function resolveHeartbeatEntity(entity: string): string {
+  if (/^[a-zA-Z]:[\\/]/.test(entity) || /^[\\/]{2}[^\\/]/.test(entity)) {
+    return path.win32.normalize(entity);
+  }
+  return path.resolve(entity);
+}
+
 const SHELL_CHANGE_EXCLUDES = [
   ".git",
   "node_modules",
@@ -178,7 +185,7 @@ export class WakaTimeTracker {
       return;
     }
 
-    const resolvedEntity = path.resolve(entity);
+    const resolvedEntity = resolveHeartbeatEntity(entity);
     const now = this.#now();
     if (
       !options.write &&
