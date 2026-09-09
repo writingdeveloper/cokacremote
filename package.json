@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "profile:tools": "tsx scripts/profile-tools.ts",
-    "doctor": "node dist/src/doctor.js"
+    "doctor": "node dist/src/doctor.js",
+    "smoke:production": "node scripts/production-smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",

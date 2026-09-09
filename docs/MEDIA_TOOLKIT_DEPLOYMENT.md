@@ -135,6 +135,8 @@ Notebook currently has one legacy malformed Scheduled Task named `cokacremote-wa
 
 The remaining cleanup is deliberately administrator-only: run the synced elevated installer to recreate the standard `cokacremote-watchdog` with the tracked hidden launcher, verify result 0, then remove the temporary/legacy `-bg` task. Until that maintenance window, the malformed Highest task is noisy but the Limited `-bg` task provides the functioning watchdog path.
 
+To cover failures that neither host-local watchdog can see (for example DNS/Cloudflare route drift while both origins remain healthy), `scripts/production-smoke.mjs` and `.github/workflows/production-smoke.yml` add an external, read-only health check. The scheduled workflow runs hourly at minute 17, retries transient network failures, validates `status=ok`, 27 tools, `core-media-2026-09-09.1`, OAuth enabled, and identical runtime-policy fingerprints across `mcp.writingdeveloper.blog` and `cokac.writingdeveloper.blog`. Its local success/failure behavior is also regression-tested so stale 21-tool payloads cannot pass silently.
+
 ## Connector-disappearance root causes addressed
 
 ### 1. Tool execution could starve discovery
@@ -200,8 +202,8 @@ Production CLI smoke on both machines successfully generated an `image_review` p
 
 Verified operational code HEAD `9d9a2a5` before this documentation-only evidence update:
 
-- test files: 26
-- tests: 122 passed / 0 failed
+- test files: 27
+- tests: 124 passed / 0 failed
 - GitHub Actions run `34405809704`: Linux PASS / Windows PASS
 - public doctor: PASS with the expected catalog-discovery cache warning only
 - TypeScript typecheck: PASS
