@@ -93,6 +93,24 @@ The private 4080 runtime config now enforces:
 
 Live invariant-aware status after activation reported `health=True`, `tools=27/27`, exact catalog match, PID 50448, one matching server process, zero duplicates, and watchdog `LastTaskResult=0`. A manual watchdog pass also preserved the same healthy PID.
 
+## Cross-platform CI hardening and final 4080 recycle
+
+GitHub Actions was added after the rollout so future changes are checked on both Linux and Windows instead of relying only on the 4080 host. The first hosted run intentionally exposed real portability problems rather than being weakened to pass:
+
+- Windows-style WakaTime entities were being resolved as POSIX-relative paths on Linux.
+- the WakaTime exec integration test hard-coded the Windows Git Bash path.
+- a POSIX process-capacity assertion assumed `SIGKILL` delivery was synchronous.
+- Ubuntu's older Blender rejected `--offline-mode`, which is available only on newer Blender CLI versions.
+
+Commit `75da327` fixes those issues. Blender review now probes the installed version, always keeps file auto-execution disabled, and adds `--offline-mode` only when supported. Older Blender remains usable with an explicit report warning that OS-level network isolation is not provided by that fallback.
+
+GitHub Actions run `34398498508` passed end-to-end:
+
+- Windows runtime regression: PASS, including real Scheduled Task/watchdog/process-lifecycle tests.
+- Linux full regression: PASS, including FFmpeg/Blender media tests, typecheck, build and production dependency audit.
+
+After hosted CI passed, the freshly built production `dist` was recycled from PID 50448 to PID 43788. Local and public 4080 health then reported `27/27`, exact `core-media-2026-09-09.1` catalog match, one listener and zero duplicates. Public notebook health continued to report the same catalog revision and runtime policy fingerprint.
+
 ## Connector-disappearance root causes addressed
 
 ### 1. Tool execution could starve discovery
@@ -152,14 +170,15 @@ Actions supported through `media_submit`:
 - `asset_audit`
 - `asset_preview`
 
-Production CLI smoke on both machines successfully generated an `image_review` preview from a local synthetic PNG. A fresh post-realignment 4080 smoke also completed job `9f1b4dba-2b42-4e50-b88a-fd6a8b6f3782` through the production `dist`, with `acceptance=NOT_REVIEWED`, `preview.jpg` present, and no internal bookkeeping JSON advertised as an artifact. 4080 reported FFmpeg/ffprobe 8.1.1 and Blender 5.2 LTS available; notebook reported the same major toolchain during rollout smoke.
+Production CLI smoke on both machines successfully generated an `image_review` preview from a local synthetic PNG. A fresh post-realignment 4080 image smoke completed job `9f1b4dba-2b42-4e50-b88a-fd6a8b6f3782` through the production `dist`, with `acceptance=NOT_REVIEWED`, `preview.jpg` present, and no internal bookkeeping JSON advertised as an artifact. After the Blender compatibility change, production 3D smoke job `1b9ead7d-aeef-41ff-a2cb-a9b19e216603` completed `asset_audit` on a synthetic cube through the same `dist`; Blender 5.2.0 LTS reported 8 vertices / 12 triangles, zero non-manifold or boundary edges, and `acceptance=NOT_REVIEWED`. 4080 reports FFmpeg/ffprobe 8.1.1 and Blender 5.2.0 LTS available; notebook reported the same major toolchain during rollout smoke.
 
 ## Verification evidence
 
-Verified operational source HEAD `7d0fc12` before this documentation-only evidence update:
+Verified operational source HEAD `75da327` before this documentation-only evidence update:
 
 - test files: 25
-- tests: 117 passed / 0 failed
+- tests: 118 passed / 0 failed
+- GitHub Actions run `34398498508`: Linux PASS / Windows PASS
 - TypeScript typecheck: PASS
 - build: PASS
 - `git diff --check`: PASS
