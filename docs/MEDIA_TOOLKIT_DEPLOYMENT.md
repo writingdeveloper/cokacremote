@@ -9,8 +9,11 @@
 - Final media artifact cleanup: `65e2481` — internal `job.json` / `asset-request.json` are not advertised as review artifacts.
 - Windows watchdog UX fix: `ce306e4` — the repeating watchdog is launched through `wscript.exe` so it does not flash a PowerShell console window.
 - Catalog-drift watchdog hardening: `7d0fc12` — Windows health now verifies the expected tool count/catalog revision even when `/health` returns HTTP 200, and uninstall can remove matching orphan server/tunnel children when given its runtime config.
+- Runtime doctor + catalog telemetry: `114b4f6` — `/health` records live `server/discover` / `tools/list` activity and `npm run doctor` separates server faults from plausible client-side manifest caching.
+- Public operations/release guidance: `933f073` — README/repository metadata, CHANGELOG, SECURITY policy and explicit release checklist were brought in line with the 27-tool Linux/Windows deployment.
+- Windows Cloudflare token-file support: `fa54790` + `9d9a2a5` — the supervisor can use an ACL-restricted token file without placing the secret token in process arguments; the hosted Windows regression is path-alias independent.
 
-The current 4080 operational checkout is based on `7d0fc12`. The running Node application is TypeScript-runtime-equivalent to `ce306e4`; `7d0fc12` changes Windows deployment controls, tests and documentation, so no additional Node recycle was required. The initial rollout used clean worktrees so unrelated source changes were not destroyed. During the final 4080 reconciliation, the previous dirty `main` state was preserved in a backup branch and stash before `main` itself was promoted to the verified rollout history.
+The current 4080 operational checkout is based on `9d9a2a5`. The running Node application (PID 50876) contains the `114b4f6` telemetry/doctor runtime; the later commits change documentation, Windows deployment controls and tests, so no additional Node recycle is required for those later commits. The initial rollout used clean worktrees so unrelated source changes were not destroyed. During the final 4080 reconciliation, the previous dirty `main` state was preserved in a backup branch and stash before `main` itself was promoted to the verified rollout history.
 
 ## Production parity
 
@@ -111,6 +114,19 @@ GitHub Actions run `34398498508` passed end-to-end:
 
 After hosted CI passed, the freshly built production `dist` was recycled from PID 50448 to PID 43788. Local and public 4080 health then reported `27/27`, exact `core-media-2026-09-09.1` catalog match, one listener and zero duplicates. Public notebook health continued to report the same catalog revision and runtime policy fingerprint.
 
+## Runtime doctor, manifest telemetry, and Cloudflare route recovery
+
+Commit `114b4f6` added catalog-discovery telemetry and the built-in runtime doctor. The 4080 production server was recycled again to PID 50876 with that runtime. The fresh server then showed ordinary MCP activity while `catalogDiscovery.requestCount=0`, `successCount=0` and `failureCount=0`. At the same time this already-open ChatGPT conversation still could not discover the `media_*` tools. This is direct runtime evidence that the conversation is reusing a product-side cached manifest without issuing a fresh `tools/list` or `server/discover` to the server. `npm run doctor -- --url https://cokac.writingdeveloper.blog --skip-media` therefore passes health/catalog/OAuth checks and emits only the expected cached-manifest warning.
+
+During this work the 4080 LAN origin remained healthy while `https://cokac.writingdeveloper.blog` temporarily timed out behind Cloudflare. The DNS route had drifted away from the intended 4080 tunnel, so a temporary `sihyeong-4080` tunnel connector was used only as a recovery canary. Secret token transfer was not automated. The durable fix instead reused notebook's already-authenticated, Scheduled-Task-managed `cokacremote` tunnel (ID `c92a273c-fb45-47d3-a8b7-088e0fc6f70b`) and added a second ingress:
+
+- `mcp.writingdeveloper.blog` -> `http://127.0.0.1:8890`
+- `cokac.writingdeveloper.blog` -> `http://192.168.1.69:3000`
+
+The ingress configuration passed `cloudflared tunnel ingress validate` and rule-resolution checks before the persistent tunnel task was restarted. DNS for `cokac.writingdeveloper.blog` was then moved to the persistent `cokacremote` tunnel and the temporary canary was stopped. Immediately after the canary stopped, one transient 502 occurred while an older Cloudflare connector was still visible; after that stale connector disappeared, the 4080 LAN origin passed 12/12 direct health checks and the two public endpoints passed 30/30 consecutive paired health checks. The canary tunnel now reports no active connection. The persistent tunnel task remains Running with one local config-driven cloudflared process (PID 54192).
+
+Commit `fa54790` keeps a future 4080-local token-file supervisor path available, but it is intentionally **not activated** on the current 4080 host: `TUNNEL_ENABLED=false` remains the private runtime setting because moving the Cloudflare secret was not automated. The persistent notebook tunnel is the current production public route. Hosted run `34405809704` verifies the final `9d9a2a5` code on both Linux and Windows; the earlier `fa54790` Windows failure was only an 8.3-vs-long TEMP path assertion and was corrected without weakening the token non-disclosure invariant.
+
 ## Connector-disappearance root causes addressed
 
 ### 1. Tool execution could starve discovery
@@ -174,11 +190,12 @@ Production CLI smoke on both machines successfully generated an `image_review` p
 
 ## Verification evidence
 
-Verified operational source HEAD `75da327` before this documentation-only evidence update:
+Verified operational code HEAD `9d9a2a5` before this documentation-only evidence update:
 
-- test files: 25
-- tests: 118 passed / 0 failed
-- GitHub Actions run `34398498508`: Linux PASS / Windows PASS
+- test files: 26
+- tests: 122 passed / 0 failed
+- GitHub Actions run `34405809704`: Linux PASS / Windows PASS
+- public doctor: PASS with the expected catalog-discovery cache warning only
 - TypeScript typecheck: PASS
 - build: PASS
 - `git diff --check`: PASS

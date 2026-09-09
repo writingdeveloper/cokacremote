@@ -11,6 +11,7 @@ All notable changes to this fork are documented here. The repository has not yet
 - Separate MCP control-plane concurrency gate so `tools/list` and `server/discover` remain available while long tool calls are saturated.
 - Five-minute private discovery cache hints for modern MCP clients.
 - Runtime catalog-discovery telemetry and `npm run doctor` diagnostics for distinguishing server faults from client-side cached manifests.
+- Windows Cloudflare tunnel supervision supports mutually exclusive config-file or ACL-restricted token-file modes without placing token contents in process arguments.
 - Linux full-regression and Windows runtime GitHub Actions jobs.
 
 ### Changed

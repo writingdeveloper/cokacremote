@@ -534,6 +534,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1
 
 The server supervisor adopts a matching existing listener after wrapper restarts, rejects unrelated owners of the configured port, waits on the child, and restarts it after exit. The optional tunnel supervisor uses cloudflared's native `--logfile` and similarly adopts a matching tunnel. The one-minute watchdog restarts stopped supervisor tasks, removes duplicate matching children, and recycles the server only after two consecutive health failures. When catalog invariants are configured, a tool-count or catalog-revision mismatch is a health failure even if `/health` returns HTTP 200. The watchdog itself runs through `wscript.exe` so its one-minute check does not flash a PowerShell console window. Supervisor tasks use `IgnoreNew`, can run on battery, have no execution time limit, and are configured for Task Scheduler restart recovery.
 
+When `TUNNEL_ENABLED=true`, choose exactly one Cloudflare authentication mode in the private Windows runtime config:
+
+- `TUNNEL_CONFIG=C:\path\to\cloudflared.yml` for a locally managed named-tunnel config/credential file.
+- `TUNNEL_TOKEN_FILE=C:\secure\sihyeong-4080.token` plus `TUNNEL_URL=http://127.0.0.1:3000` for token-file mode. The supervisor passes only the token **file path** to cloudflared, never the token contents on the process command line. Restrict the token file ACL to the service user and never commit it.
+
+`status.ps1` reports tunnel mode (`config`, `token-file`, `disabled`, or `invalid`) and matching process count so authentication/configuration mistakes are visible before they become a silent public-route failure.
+
 Inspect the runtime without changing it:
 
 ```powershell
