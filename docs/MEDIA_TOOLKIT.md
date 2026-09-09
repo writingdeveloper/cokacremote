@@ -110,3 +110,7 @@ The repository includes `npm run profile:tools` for a non-destructive in-memory 
 Production policy keeps normal execution at 8 concurrent MCP calls while reserving 4 independent control-plane calls and 16 queued control requests. Media work has an additional lower ceiling of 2 concurrent workers and 64 retained job directories by default. This separation is intended to keep connector discovery responsive even while development or media jobs are active.
 
 Dependency audit on the final integration lockfile reports zero known npm vulnerabilities after patch-level updates of transitive `hono` and `qs` packages. Any future dependency update still requires the full Windows integration suite before deployment.
+
+### Connector manifest freshness
+
+The earlier 24-hour ChatGPT Web discovery TTL was removed after production QA showed that it could keep a pre-deployment tool catalog visible for an entire existing conversation. The profile now uses a 5-minute private cache hint. Because catalog/control requests have their own concurrency gate, frequent refresh no longer competes with long-running tool calls. This intentionally trades a small amount of tools/list traffic for much faster recovery from catalog revisions without requiring a new conversation.

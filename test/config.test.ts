@@ -88,7 +88,7 @@ describe("loadConfig", () => {
       mediaMaxJobs: 64,
       processYieldTimeMs: 30000,
       processPollWaitMs: 30000,
-      discoveryCacheTtlMs: 86400000,
+      discoveryCacheTtlMs: 300000,
       oauthRefreshReplayGraceMs: 10000,
       maxFileChunkBytes: 262144,
     });
