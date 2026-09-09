@@ -127,6 +127,14 @@ The ingress configuration passed `cloudflared tunnel ingress validate` and rule-
 
 Commit `fa54790` keeps a future 4080-local token-file supervisor path available, but it is intentionally **not activated** on the current 4080 host: `TUNNEL_ENABLED=false` remains the private runtime setting because moving the Cloudflare secret was not automated. The persistent notebook tunnel is the current production public route. Hosted run `34405809704` verifies the final `9d9a2a5` code on both Linux and Windows; the earlier `fa54790` Windows failure was only an 8.3-vs-long TEMP path assertion and was corrected without weakening the token non-disclosure invariant.
 
+### Notebook Windows runtime sync and watchdog cleanup boundary
+
+The notebook deployment checkout intentionally remains a dirty/private runtime checkout, but its ignored `deploy/windows/` runtime scripts were older than the verified public source. A clean `c7217cf` copy was fetched into TEMP, every staged PowerShell file passed AST parsing, and staged `status.ps1` successfully read the live private config before any file was replaced. The previous runtime directory was backed up as `cokacremote-windows-runtime-before-c7217cf-20260909-143341`, then the verified Windows runtime files (including `hidden-powershell.vbs`) were copied into the notebook deployment. The private notebook config now also enforces `EXPECTED_TOOL_COUNT=27` and `EXPECTED_CATALOG_REVISION=core-media-2026-09-09.1`.
+
+Notebook currently has one legacy malformed Scheduled Task named `cokacremote-watchdog` (Highest run level) whose wscript action contains no VBS argument and returns `2147942667`. A second existing task, `cokacremote-watchdog-bg`, is the working hidden watchdog. Replacing the Highest task from the non-elevated MCP session was correctly denied by Windows, so no UAC/elevation bypass was attempted. The working `-bg` task was left intact; after the runtime sync its next one-minute execution completed with `LastTaskResult=0`, while the notebook server remained `27/27`, the persistent tunnel remained Running in `config` mode, and both public endpoints returned HTTP 200.
+
+The remaining cleanup is deliberately administrator-only: run the synced elevated installer to recreate the standard `cokacremote-watchdog` with the tracked hidden launcher, verify result 0, then remove the temporary/legacy `-bg` task. Until that maintenance window, the malformed Highest task is noisy but the Limited `-bg` task provides the functioning watchdog path.
+
 ## Connector-disappearance root causes addressed
 
 ### 1. Tool execution could starve discovery
