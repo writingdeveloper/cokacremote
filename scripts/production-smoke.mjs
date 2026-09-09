@@ -48,7 +48,6 @@ for (const { url, attempt, body } of results) {
     registeredToolCount: body.registeredToolCount,
     toolCatalogRevision: body.toolCatalogRevision,
     runtimePolicyFingerprint: body.runtimePolicyFingerprint,
-    oauthEnabled: body.oauthEnabled,
     processId: body.processId,
     serverInstanceId: body.serverInstanceId,
   };
@@ -61,7 +60,7 @@ for (const { url, attempt, body } of results) {
   if (body.toolCatalogRevision !== expectedCatalogRevision) {
     failures.push(`${url}: catalog=${String(body.toolCatalogRevision)} expected=${expectedCatalogRevision}`);
   }
-  if (body.oauthEnabled !== true) failures.push(`${url}: oauthEnabled=${String(body.oauthEnabled)}`);
+  if (body.oauthEnabled !== true) failures.push(`${url}: OAuth is not enabled as required`);
   if (typeof body.runtimePolicyFingerprint !== "string" || body.runtimePolicyFingerprint.length === 0) {
     failures.push(`${url}: missing runtimePolicyFingerprint`);
   } else {

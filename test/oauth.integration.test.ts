@@ -164,7 +164,7 @@ describe("OAuth 2.1 MCP authorization", () => {
         token_endpoint_auth_method: "none",
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
-        client_name: "ChatGPT OAuth integration test",
+        client_name: 'ChatGPT OAuth <script>alert("xss")</script>',
         scope: "mcp:tools",
       }),
     });
@@ -192,7 +192,10 @@ describe("OAuth 2.1 MCP authorization", () => {
     expect(loginPage.headers.get("content-security-policy")).toContain(
       "form-action 'self' https://chatgpt.com",
     );
-    expect(await loginPage.text()).toContain("MCP 인증키");
+    const loginHtml = await loginPage.text();
+    expect(loginHtml).toContain("MCP 인증키");
+    expect(loginHtml).not.toContain('<script>alert("xss")</script>');
+    expect(loginHtml).toContain('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
 
     const rejectedLogin = await fetch(`${baseUrl}/authorize`, {
       method: "POST",

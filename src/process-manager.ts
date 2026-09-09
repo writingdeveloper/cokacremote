@@ -239,6 +239,7 @@ export class ProcessManager {
       stdio: "pipe",
       detached: process.platform !== "win32",
       windowsHide: true,
+      shell: false,
     });
     const sessionId = randomUUID();
     const managed: ManagedProcess = {

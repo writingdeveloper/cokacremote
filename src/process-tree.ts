@@ -8,7 +8,10 @@ function windowsProcessMissing(message: string): boolean {
 }
 
 function terminatedPid(message: string, pid: number): boolean {
-  return new RegExp(`PID\s+${pid}\b[^\r\n]*terminated`, "i").test(message);
+  for (const match of message.matchAll(/PID\s+(\d+)\b[^\r\n]*terminated/gi)) {
+    if (Number(match[1]) === pid) return true;
+  }
+  return false;
 }
 
 function failedChildPids(message: string, rootPid: number): number[] {

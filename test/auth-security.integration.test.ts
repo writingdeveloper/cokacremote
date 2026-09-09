@@ -25,6 +25,52 @@ async function reservePort(): Promise<number> {
 }
 
 describe("OAuth endpoint security boundaries", () => {
+  it("rate-limits repeated failed MCP authentication", async () => {
+    const temporaryDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "cokacremote-mcp-auth-rate-limit-test-"),
+    );
+    const port = await reservePort();
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const config = loadConfig(
+      {
+        MCP_AUTH_TOKEN: "correct-token",
+        MCP_HOST: "127.0.0.1",
+        MCP_PORT: String(port),
+        MCP_DEFAULT_CWD: temporaryDirectory,
+      },
+      temporaryDirectory,
+    );
+    const running = await startHttpServer(config, createServices(config));
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "rate-test", version: "1" } },
+    });
+    try {
+      for (let index = 0; index < 30; index += 1) {
+        const response = await fetch(`${baseUrl}/mcp`, {
+          method: "POST",
+          headers: { authorization: "Bearer wrong-token", "content-type": "application/json" },
+          body,
+        });
+        expect(response.status, `failed attempt ${index + 1}`).toBe(401);
+      }
+      const blocked = await fetch(`${baseUrl}/mcp`, {
+        method: "POST",
+        headers: { authorization: "Bearer wrong-token", "content-type": "application/json" },
+        body,
+      });
+      expect(blocked.status).toBe(429);
+      expect(await blocked.json()).toMatchObject({
+        error: { code: -32003 },
+      });
+    } finally {
+      await running.close();
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("does not trust spoofed forwarded IPs unless a proxy is explicitly configured", async () => {
     const temporaryDirectory = await mkdtemp(
       path.join(os.tmpdir(), "cokacremote-auth-boundary-test-"),

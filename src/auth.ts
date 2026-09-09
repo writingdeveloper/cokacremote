@@ -19,6 +19,17 @@ function oauthResourceMetadataUrl(config: AppConfig): string {
   return new URL(`/.well-known/oauth-protected-resource${suffix}`, resource).href;
 }
 
+export function parseBearerAuthorization(value: string | undefined): string | undefined {
+  if (!value || value.length < 8) return undefined;
+  let cursor = 0;
+  while (cursor < value.length && value[cursor] !== " " && value[cursor] !== "	") cursor += 1;
+  if (value.slice(0, cursor).toLowerCase() !== "bearer") return undefined;
+  const separatorStart = cursor;
+  while (cursor < value.length && (value[cursor] === " " || value[cursor] === "	")) cursor += 1;
+  if (cursor === separatorStart || cursor >= value.length) return undefined;
+  return value.slice(cursor);
+}
+
 export function createBearerAuth(
   config: AppConfig,
   oauthVerifier?: OAuthTokenVerifier,
@@ -30,8 +41,7 @@ export function createBearerAuth(
     }
 
     const authorization = request.header("authorization");
-    const match = authorization?.match(/^Bearer\s+(.+)$/i);
-    const suppliedToken = match?.[1];
+    const suppliedToken = parseBearerAuthorization(authorization);
     if (suppliedToken && config.authToken && tokensEqual(suppliedToken, config.authToken)) {
       next();
       return;

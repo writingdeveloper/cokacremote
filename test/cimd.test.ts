@@ -20,6 +20,31 @@ describe("CimdClientResolver", () => {
     expect(fetchDocument).not.toHaveBeenCalled();
   });
 
+  it("rejects mixed public/private DNS answers, IP literals, and nonstandard HTTPS ports", async () => {
+    const fetchDocument = vi.fn(async () => ({
+      statusCode: 200,
+      contentType: "application/json",
+      body: "{}",
+    }));
+    const mixed = new CimdClientResolver({
+      lookup: async () => [
+        { address: "8.8.8.8", family: 4 },
+        { address: "10.0.0.1", family: 4 },
+      ],
+      fetchDocument,
+    });
+    await expect(mixed.resolve("https://client.example/oauth/client.json")).rejects.toThrow(/public address/i);
+    expect(fetchDocument).not.toHaveBeenCalled();
+
+    const resolver = new CimdClientResolver({
+      lookup: async () => [{ address: "8.8.8.8", family: 4 }],
+      fetchDocument,
+    });
+    await expect(resolver.resolve("https://8.8.8.8/oauth/client.json")).rejects.toThrow(/DNS hostname/i);
+    await expect(resolver.resolve("https://client.example:8443/oauth/client.json")).rejects.toThrow(/port 443/i);
+    expect(fetchDocument).not.toHaveBeenCalled();
+  });
+
   it("requires HTTPS with a non-root path and refuses redirects", async () => {
     const resolver = new CimdClientResolver({
       lookup: async () => [{ address: "8.8.8.8", family: 4 }],

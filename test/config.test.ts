@@ -158,6 +158,18 @@ describe("loadConfig", () => {
     });
   });
 
+  it("does not reflect invalid boolean environment values into startup errors", () => {
+    const secretLikeValue = "not-a-boolean-secret-value";
+    let message = "";
+    try {
+      loadConfig({ MCP_AUTH_TOKEN: "secret", MCP_OAUTH_ENABLED: secretLikeValue }, testCwd);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toContain("MCP_OAUTH_ENABLED");
+    expect(message).not.toContain(secretLikeValue);
+  });
+
   it("enables CIMD by default for OAuth and supports an emergency disable switch", () => {
     const base = {
       MCP_AUTH_TOKEN: "secret",

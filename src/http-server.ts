@@ -5,6 +5,7 @@ import type { AuthRouterOptions } from "@modelcontextprotocol/server-legacy/auth
 import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
 import { createMcpHandler, isLegacyRequest } from "@modelcontextprotocol/server";
 import express, { type Request, type Response } from "express";
+import { rateLimit } from "express-rate-limit";
 
 import { createBearerAuth, createHostValidation } from "./auth.js";
 import { BusyError, ConcurrencyGate } from "./concurrency-gate.js";
@@ -296,6 +297,18 @@ export async function startHttpServer(
     app.use(mcpAuthRouter(oauthRouterOptions));
   }
   const authenticate = createBearerAuth(config, oauthProvider);
+  const mcpAuthLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    message: {
+      jsonrpc: "2.0",
+      error: { code: -32003, message: "Too many failed MCP requests; retry later" },
+      id: null,
+    },
+  });
   const parseMcpJson = express.json({ limit: config.maxRequestBody });
 
   app.get("/health", (_request, response) => {
@@ -398,14 +411,15 @@ export async function startHttpServer(
 
   app.post(
     config.endpoint,
+    mcpAuthLimiter,
     authenticate,
     parseMcpJson,
     (request, response) => {
       void postHandler(request, response);
     },
   );
-  app.get(config.endpoint, authenticate, methodNotAllowed);
-  app.delete(config.endpoint, authenticate, methodNotAllowed);
+  app.get(config.endpoint, mcpAuthLimiter, authenticate, methodNotAllowed);
+  app.delete(config.endpoint, mcpAuthLimiter, authenticate, methodNotAllowed);
 
   app.use(
     (

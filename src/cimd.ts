@@ -1,6 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
-import { BlockList, type LookupFunction } from "node:net";
+import { BlockList, isIP, type LookupFunction } from "node:net";
 
 const MAX_METADATA_BYTES = 64 * 1024;
 const FETCH_TIMEOUT_MS = 5_000;
@@ -74,6 +74,15 @@ function validateClientIdUrl(clientId: string): URL {
   }
   if (!url.hostname) {
     throw new Error("CIMD client_id must include a hostname");
+  }
+  const normalizedHostname = url.hostname.startsWith("[") && url.hostname.endsWith("]")
+    ? url.hostname.slice(1, -1)
+    : url.hostname;
+  if (isIP(normalizedHostname) !== 0) {
+    throw new Error("CIMD client_id must use a DNS hostname, not an IP literal");
+  }
+  if (url.port && url.port !== "443") {
+    throw new Error("CIMD client_id must use the standard HTTPS port 443");
   }
   if (!url.pathname || url.pathname === "/") {
     throw new Error("CIMD client_id must include a non-root path");

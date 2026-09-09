@@ -50,7 +50,7 @@ export interface AppConfig {
   wakatimeTrackShellChanges: boolean;
 }
 
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+function parseBoolean(value: string | undefined, fallback: boolean, name: string): boolean {
   if (value === undefined || value === "") {
     return fallback;
   }
@@ -60,7 +60,7 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (["0", "false", "no", "off"].includes(value.toLowerCase())) {
     return false;
   }
-  throw new Error(`Invalid boolean value: ${value}`);
+  throw new Error(`${name} must be one of true/false, yes/no, on/off, or 1/0`);
 }
 
 function parseInteger(
@@ -122,9 +122,9 @@ export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   processCwd = process.cwd(),
 ): AppConfig {
-  const allowNoAuth = parseBoolean(env.MCP_ALLOW_NO_AUTH, false);
+  const allowNoAuth = parseBoolean(env.MCP_ALLOW_NO_AUTH, false, "MCP_ALLOW_NO_AUTH");
   const authToken = env.MCP_AUTH_TOKEN?.trim() || undefined;
-  const oauthEnabled = parseBoolean(env.MCP_OAUTH_ENABLED, false);
+  const oauthEnabled = parseBoolean(env.MCP_OAUTH_ENABLED, false, "MCP_OAUTH_ENABLED");
   const oauthApprovalKey = oauthEnabled
     ? env.MCP_OAUTH_APPROVAL_KEY?.trim() || authToken
     : undefined;
@@ -172,7 +172,7 @@ export function loadConfig(
     authToken,
     allowNoAuth,
     oauthEnabled,
-    oauthCimdEnabled: oauthEnabled && parseBoolean(env.MCP_OAUTH_CIMD_ENABLED, true),
+    oauthCimdEnabled: oauthEnabled && parseBoolean(env.MCP_OAUTH_CIMD_ENABLED, true, "MCP_OAUTH_CIMD_ENABLED"),
     oauthApprovalKey,
     oauthIssuerUrl,
     oauthResourceUrl,
@@ -320,16 +320,17 @@ export function loadConfig(
       1,
       256,
     ),
-    wakatimeEnabled: parseBoolean(env.MCP_WAKATIME_ENABLED, false),
+    wakatimeEnabled: parseBoolean(env.MCP_WAKATIME_ENABLED, false, "MCP_WAKATIME_ENABLED"),
     wakatimeCli: env.MCP_WAKATIME_CLI?.trim() || undefined,
     wakatimeHome: env.MCP_WAKATIME_HOME?.trim() || undefined,
     wakatimeConfig: env.MCP_WAKATIME_CONFIG?.trim() || undefined,
     wakatimeModel: env.MCP_WAKATIME_MODEL?.trim() || "gpt/5.6-sol",
     wakatimePlugin: env.MCP_WAKATIME_PLUGIN?.trim() || "chatgpt-web/0.1.0",
-    wakatimeTrackReads: parseBoolean(env.MCP_WAKATIME_TRACK_READS, true),
+    wakatimeTrackReads: parseBoolean(env.MCP_WAKATIME_TRACK_READS, true, "MCP_WAKATIME_TRACK_READS"),
     wakatimeTrackShellChanges: parseBoolean(
       env.MCP_WAKATIME_TRACK_SHELL_CHANGES,
       true,
+      "MCP_WAKATIME_TRACK_SHELL_CHANGES",
     ),
   };
 }
