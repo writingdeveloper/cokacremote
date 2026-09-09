@@ -14,6 +14,7 @@ All notable changes to this fork are documented here. The repository has not yet
 - Windows Cloudflare tunnel supervision supports mutually exclusive config-file or ACL-restricted token-file modes without placing token contents in process arguments.
 - Linux full-regression and Windows runtime GitHub Actions jobs.
 - Hourly external production smoke verifies both public endpoints, the 27-tool catalog and cross-host runtime policy parity without mutating production.
+- Weekly Dependabot version updates cover npm and GitHub Actions, grouping minor/patch updates while leaving major updates separate for review.
 
 ### Changed
 - Process retention/running capacity, WakaTime attribution, OAuth refresh lifecycle, file-list bounds, and optimistic SHA-256 mutation preconditions were hardened for long-running ChatGPT usage.

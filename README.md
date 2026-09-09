@@ -504,6 +504,10 @@ MCP_WAKATIME_TRACK_SHELL_CHANGES=true
 | `test/all-tools.integration.test.ts` | E2E tests for all 27 tools and external endpoints |
 | `test/` | Configuration, file, process, MCP, and OAuth unit/integration tests |
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the cross-platform test, security, and pull-request expectations.
+
 ## License
 
 [MIT License](LICENSE)
