@@ -149,13 +149,17 @@ describe.runIf(process.platform === "win32")("portable Windows deployment", () =
         "TUNNEL_LOG=tunnel.log",
       ];
       const tokenSpec = ps([...base, `TUNNEL_TOKEN_FILE=${tokenPath}`, "TUNNEL_URL=http://127.0.0.1:3000"]);
-      expect(tokenSpec).toMatchObject({ mode: "token-file", identity: path.resolve(tokenPath), url: "http://127.0.0.1:3000" });
-      expect(tokenSpec.arguments).toEqual(expect.arrayContaining(["--token-file", path.resolve(tokenPath), "--url", "http://127.0.0.1:3000"]));
+      expect(tokenSpec).toMatchObject({ mode: "token-file", url: "http://127.0.0.1:3000" });
+      expect(path.win32.isAbsolute(tokenSpec.identity)).toBe(true);
+      expect(path.win32.basename(tokenSpec.identity)).toBe("tunnel.token");
+      expect(tokenSpec.arguments).toEqual(expect.arrayContaining(["--token-file", tokenSpec.identity, "--url", "http://127.0.0.1:3000"]));
       expect(tokenSpec.arguments.join(" ")).not.toContain("secret-not-command-line");
 
       const configSpec = ps([...base, `TUNNEL_CONFIG=${tunnelConfigPath}`]);
-      expect(configSpec).toMatchObject({ mode: "config", identity: path.resolve(tunnelConfigPath), url: null });
-      expect(configSpec.arguments).toEqual(expect.arrayContaining(["--config", path.resolve(tunnelConfigPath)]));
+      expect(configSpec).toMatchObject({ mode: "config", url: null });
+      expect(path.win32.isAbsolute(configSpec.identity)).toBe(true);
+      expect(path.win32.basename(configSpec.identity)).toBe("cloudflared.yml");
+      expect(configSpec.arguments).toEqual(expect.arrayContaining(["--config", configSpec.identity]));
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
