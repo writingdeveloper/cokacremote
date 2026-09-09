@@ -46,8 +46,10 @@ function runtimePolicyFingerprint(config: AppConfig): string {
     processRetentionMs: config.processRetentionMs,
     maxProcesses: config.maxProcesses,
     maxConcurrentToolCalls: config.maxConcurrentToolCalls,
+    maxConcurrentControlCalls: config.maxConcurrentControlCalls,
     maxConcurrentProcesses: config.maxConcurrentProcesses,
     maxQueuedRequests: config.maxQueuedRequests,
+    maxQueuedControlRequests: config.maxQueuedControlRequests,
     processYieldTimeMs: config.processYieldTimeMs,
     processPollWaitMs: config.processPollWaitMs,
     discoveryCacheTtlMs: config.discoveryCacheTtlMs,
@@ -57,6 +59,10 @@ function runtimePolicyFingerprint(config: AppConfig): string {
     oauthRefreshReplayGraceMs: config.oauthRefreshReplayGraceMs,
   };
   return createHash("sha256").update(JSON.stringify(policy)).digest("hex").slice(0, 16);
+}
+
+function isControlPlaneMethod(method: string | undefined): boolean {
+  return method === "server/discover" || method === "tools/list" || method === "initialize" || method === "notifications/initialized" || method === "ping";
 }
 
 function rpcToolName(body: unknown): string | undefined {
@@ -142,6 +148,10 @@ export async function startHttpServer(
   const requestGate = new ConcurrencyGate(
     config.maxConcurrentToolCalls,
     config.maxQueuedRequests,
+  );
+  const controlGate = new ConcurrencyGate(
+    config.maxConcurrentControlCalls,
+    config.maxQueuedControlRequests,
   );
   const oauthProvider = config.oauthEnabled ? new RemoteDevOAuthProvider(config) : undefined;
   if (oauthProvider) {
@@ -259,14 +269,15 @@ export async function startHttpServer(
   app.get("/health", (_request, response) => {
     const processes = services.processManager.stats();
     const concurrency = requestGate.stats();
+    const controlConcurrency = controlGate.stats();
     response.json({
       status: "ok",
       service: "cokacremote",
       version: "0.1.0",
       transportMode: "stateless-json",
       activeMcpSessions: 0,
-      activeMcpRequests: concurrency.active,
-      queuedMcpRequests: concurrency.queued,
+      activeMcpRequests: concurrency.active + controlConcurrency.active,
+      queuedMcpRequests: concurrency.queued + controlConcurrency.queued,
       serverInstanceId,
       processId: process.pid,
       startedAt,
@@ -278,6 +289,7 @@ export async function startHttpServer(
       toolCatalogRevision: TOOL_CATALOG_REVISION,
       runtimePolicyFingerprint: policyFingerprint,
       concurrency,
+      controlConcurrency,
       managedProcesses: processes.running + processes.completedRetained,
       processes,
       unrestrictedHostAccess: true,
@@ -322,7 +334,8 @@ export async function startHttpServer(
 
   const postHandler = async (request: Request, response: Response): Promise<void> => {
     try {
-      await requestGate.run(async () => {
+      const gate = isControlPlaneMethod(rpcMethod(request.body)) ? controlGate : requestGate;
+      await gate.run(async () => {
         const webRequest = await toWebRequest(request, request.body);
         if (await isLegacyRequest(webRequest, request.body)) {
           await handleLegacyRequest(request, response);
@@ -387,8 +400,9 @@ export async function startHttpServer(
   console.log(JSON.stringify({ event: "server_lifecycle", phase: "started", serverInstanceId, processId: process.pid, startedAt, registeredToolCount: REGISTERED_TOOL_COUNT, toolCatalogRevision: TOOL_CATALOG_REVISION, runtimePolicyFingerprint: policyFingerprint }));
   const heartbeatInterval = setInterval(() => {
     const concurrency = requestGate.stats();
+    const controlConcurrency = controlGate.stats();
     const processes = services.processManager.stats();
-    console.log(JSON.stringify({ event: "server_heartbeat", serverInstanceId, processId: process.pid, startedAt, at: new Date().toISOString(), lastMcpRequestAt, mcpRequestCount, mcpAbortedRequestCount, mcpErrorResponseCount, activeMcpRequests: concurrency.active, queuedMcpRequests: concurrency.queued, managedProcesses: processes.running + processes.completedRetained, runningProcesses: processes.running, toolCatalogRevision: TOOL_CATALOG_REVISION, runtimePolicyFingerprint: policyFingerprint }));
+    console.log(JSON.stringify({ event: "server_heartbeat", serverInstanceId, processId: process.pid, startedAt, at: new Date().toISOString(), lastMcpRequestAt, mcpRequestCount, mcpAbortedRequestCount, mcpErrorResponseCount, activeMcpRequests: concurrency.active + controlConcurrency.active, queuedMcpRequests: concurrency.queued + controlConcurrency.queued, managedProcesses: processes.running + processes.completedRetained, runningProcesses: processes.running, concurrency, controlConcurrency, toolCatalogRevision: TOOL_CATALOG_REVISION, runtimePolicyFingerprint: policyFingerprint }));
   }, 60_000);
   heartbeatInterval.unref();
 

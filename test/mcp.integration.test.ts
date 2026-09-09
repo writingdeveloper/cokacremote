@@ -235,7 +235,7 @@ describe("remote development MCP server", () => {
     }
   });
 
-  it("rejects excess concurrent MCP requests with 429 while existing work remains alive", async () => {
+  it("keeps discovery available while tool execution is saturated", async () => {
     const busyDirectory = await mkdtemp(path.join(os.tmpdir(), "remote-dev-mcp-busy-test-"));
     const busyConfig = loadConfig(
       {
@@ -290,11 +290,21 @@ describe("remote development MCP server", () => {
       }
       expect(observedActive).toBe(true);
 
-      const rejected = await postBusy({
+      const discovery = await postBusy({
         jsonrpc: "2.0",
         id: 101,
         method: "tools/list",
         params: {},
+      });
+      expect(discovery.status).toBe(200);
+      const discoveryPayload = (await discovery.json()) as JsonRpcResponse;
+      expect(discoveryPayload.result?.tools).toBeInstanceOf(Array);
+
+      const rejected = await postBusy({
+        jsonrpc: "2.0",
+        id: 103,
+        method: "tools/call",
+        params: { name: "stat_path", arguments: { path: "." } },
       });
       expect(rejected.status).toBe(429);
       const rejectedPayload = (await rejected.json()) as { error?: { message?: string } };

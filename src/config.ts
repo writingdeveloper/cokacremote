@@ -27,8 +27,10 @@ export interface AppConfig {
   processRetentionMs: number;
   maxProcesses: number;
   maxConcurrentToolCalls: number;
+  maxConcurrentControlCalls: number;
   maxConcurrentProcesses: number;
   maxQueuedRequests: number;
+  maxQueuedControlRequests: number;
   processYieldTimeMs: number;
   processPollWaitMs: number;
   discoveryCacheTtlMs: number;
@@ -234,6 +236,13 @@ export function loadConfig(
       "MCP_MAX_CONCURRENT_TOOL_CALLS",
       1,
     ),
+    maxConcurrentControlCalls: parseInteger(
+      env.MCP_MAX_CONCURRENT_CONTROL_CALLS,
+      4,
+      "MCP_MAX_CONCURRENT_CONTROL_CALLS",
+      1,
+      32,
+    ),
     maxConcurrentProcesses: parseInteger(
       env.MCP_MAX_CONCURRENT_PROCESSES,
       128,
@@ -245,6 +254,13 @@ export function loadConfig(
       128,
       "MCP_MAX_QUEUED_REQUESTS",
       0,
+    ),
+    maxQueuedControlRequests: parseInteger(
+      env.MCP_MAX_QUEUED_CONTROL_REQUESTS,
+      16,
+      "MCP_MAX_QUEUED_CONTROL_REQUESTS",
+      0,
+      256,
     ),
     processYieldTimeMs: parseInteger(
       env.MCP_PROCESS_YIELD_TIME_MS,
