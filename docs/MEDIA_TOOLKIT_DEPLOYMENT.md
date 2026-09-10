@@ -224,7 +224,7 @@ Production CLI smoke on both machines successfully generated an `image_review` p
 Verified deployed application code HEAD `ede9b24` before this documentation-only evidence update:
 
 - test files: 28
-- tests: 129 passed / 0 failed
+- tests: 130 passed / 0 failed
 - GitHub Actions run `34418128654`: Linux PASS / Windows PASS
 - CodeQL run `34418127904`: JavaScript/TypeScript PASS / Actions PASS
 - CodeQL open alerts: 0 after one modeled-XSS fix plus documented false-positive triage

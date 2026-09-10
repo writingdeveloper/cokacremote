@@ -17,6 +17,7 @@ All notable changes to this fork are documented here. The repository has not yet
 - Weekly Dependabot version updates cover npm and GitHub Actions, grouping minor/patch updates while leaving major updates separate for review.
 
 ### Changed
+- Maintenance dependencies updated within the existing major versions: `express-rate-limit` 8.7.0, `zod` 4.6.1, and `tsx` 4.23.13.
 - Process retention/running capacity, WakaTime attribution, OAuth refresh lifecycle, file-list bounds, and optimistic SHA-256 mutation preconditions were hardened for long-running ChatGPT usage.
 - README/deployment guidance now reflects the production 27-tool catalog and Windows/media capabilities.
 
