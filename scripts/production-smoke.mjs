@@ -63,9 +63,8 @@ for (const { health, oauth, origin } of results) {
     registeredToolCount: body.registeredToolCount,
     toolCatalogRevision: body.toolCatalogRevision,
     runtimePolicyFingerprint: body.runtimePolicyFingerprint,
-    oauthEnabled: body.oauthEnabled,
-    oauthMetadataAttempt: oauth.attempt,
-    oauthResource: metadata.resource,
+    oauthEnabled: body.oauthEnabled === true,
+    oauthMetadataValid: true,
     processId: body.processId,
     serverInstanceId: body.serverInstanceId,
   };
@@ -86,19 +85,19 @@ for (const { health, oauth, origin } of results) {
   }
 
   if (metadata.resource !== expectedResource) {
-    failures.push(`${oauth.url}: resource=${String(metadata.resource)} expected=${expectedResource}`);
+    failures.push(`${origin}: protected-resource metadata has an invalid resource URL`);
   }
   if (!Array.isArray(metadata.authorization_servers) || !metadata.authorization_servers.includes(expectedAuthorizationServer)) {
-    failures.push(`${oauth.url}: authorization_servers must include ${expectedAuthorizationServer}`);
+    failures.push(`${origin}: protected-resource metadata is missing the expected authorization server`);
   }
   if (!Array.isArray(metadata.scopes_supported) || !metadata.scopes_supported.includes("mcp:tools")) {
-    failures.push(`${oauth.url}: scopes_supported must include mcp:tools`);
+    failures.push(`${origin}: protected-resource metadata is missing the mcp:tools scope`);
   }
   if (!Array.isArray(metadata.bearer_methods_supported) || !metadata.bearer_methods_supported.includes("header")) {
-    failures.push(`${oauth.url}: bearer_methods_supported must include header`);
+    failures.push(`${origin}: protected-resource metadata is missing header bearer authentication`);
   }
   if (metadata.resource_name !== "cokacremote") {
-    failures.push(`${oauth.url}: resource_name=${String(metadata.resource_name)} expected=cokacremote`);
+    failures.push(`${origin}: protected-resource metadata has an invalid resource name`);
   }
 }
 if (fingerprints.size > 1) {

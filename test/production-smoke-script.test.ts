@@ -109,19 +109,20 @@ describe("production smoke script", () => {
         oauthEnabled: true,
       },
       (host) => ({
-        resource: `http://${host}/wrong-resource`,
-        authorization_servers: [],
-        scopes_supported: [],
-        bearer_methods_supported: [],
-        resource_name: "wrong-name",
+        resource: `http://${host}/wrong-resource?secret=should-never-be-logged`,
+        authorization_servers: ["https://attacker.invalid/hidden-token"],
+        scopes_supported: ["secret-scope-value"],
+        bearer_methods_supported: ["secret-bearer-value"],
+        resource_name: "secret-resource-name",
       }),
     );
     const result = await runSmoke(endpoint);
     expect(result.code).toBe(1);
-    expect(result.stderr).toMatch(/resource=.*wrong-resource.*expected=.*\/mcp/);
-    expect(result.stderr).toMatch(/authorization_servers must include/);
-    expect(result.stderr).toMatch(/scopes_supported must include mcp:tools/);
-    expect(result.stderr).toMatch(/bearer_methods_supported must include header/);
-    expect(result.stderr).toMatch(/resource_name=wrong-name expected=cokacremote/);
+    expect(result.stderr).toMatch(/protected-resource metadata has an invalid resource URL/);
+    expect(result.stderr).toMatch(/missing the expected authorization server/);
+    expect(result.stderr).toMatch(/missing the mcp:tools scope/);
+    expect(result.stderr).toMatch(/missing header bearer authentication/);
+    expect(result.stderr).toMatch(/protected-resource metadata has an invalid resource name/);
+    expect(result.stdout + result.stderr).not.toMatch(/should-never-be-logged|hidden-token|secret-scope-value|secret-bearer-value|secret-resource-name/);
   });
 });
