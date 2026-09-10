@@ -22,6 +22,7 @@ All notable changes to this fork are documented here. The repository has not yet
 - README/deployment guidance now reflects the production 27-tool catalog and Windows/media capabilities.
 
 ### Security
+- External production smoke validates OAuth metadata without logging attacker-controlled metadata values; CodeQL clear-text logging findings are fixed by regression-tested redaction-by-design.
 - Bearer authentication parsing is linear, and repeated failed MCP authentication is rate-limited while successful requests remain outside the failure budget.
 - CIMD client metadata fetching rejects IP literals, nonstandard HTTPS ports, private/special or mixed DNS answers, pins the outbound connection to the validated public address, and never follows redirects.
 - OAuth approval HTML uses the modeled `escape-html` sanitizer, with a malicious client-name regression test.

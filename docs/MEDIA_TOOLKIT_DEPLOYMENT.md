@@ -158,6 +158,31 @@ Post-deploy cross-host `npm run smoke:production` passed on the first attempt: b
 
 Repository controls active after the hardening pass include secret scanning + push protection, Dependabot vulnerability/security updates, weekly npm/GitHub-Actions Dependabot PRs, CodeQL default setup, private vulnerability reporting, and ruleset `Protect main history` (ID 22699796) blocking default-branch deletion and non-fast-forward pushes without requiring PR-only maintenance.
 
+## Maintenance closeout — 2026-09-09 PDT
+
+The final maintenance pass updated the external smoke and low-risk dependencies without changing the 27-tool MCP contract:
+
+- `f997e99` validates each production host's OAuth protected-resource metadata in addition to `/health`.
+- `1730f08` updates exact-pinned `express-rate-limit` to 8.7.0, `zod` to 4.6.1, and development-only `tsx` to 4.23.13. Vitest 5 remains intentionally deferred as a major-version compatibility upgrade.
+- `53e3d05` removes a hosted-Windows timing flake by parsing all deployment PowerShell scripts in one PowerShell process instead of launching one process per file.
+- `4ef156f` stops the production smoke from echoing untrusted OAuth metadata values and adds a regression proving attacker-controlled metadata strings do not appear in stdout/stderr.
+
+Verification for `4ef156f` completed successfully:
+
+- local full regression: 28 test files / 130 tests PASS; TypeScript build PASS; production npm audit 0 known vulnerabilities.
+- GitHub Actions run `34422685458`: Linux full regression PASS / Windows runtime regression PASS.
+- CodeQL run `34422684453`: Actions PASS / JavaScript-TypeScript PASS; open CodeQL alerts returned to 0 after the clear-text logging findings were fixed in code rather than dismissed.
+- Dependabot open alerts: 0; secret-scanning open alerts: 0.
+
+Production dependency activation was completed on both hosts:
+
+- 4080: clean `53e3d05` `npm ci` + build verified `express-rate-limit@8.7.0` and `zod@4.6.1`; old `dist` backed up at `C:/Users/SIHYEONG/AppData/Local/Temp/cokacremote-dist-pre-maintenance-20260909-174009`; the Node child was explicitly recycled from PID 41552 to PID 5116 so the new dependency tree was loaded.
+- notebook: the dirty/private checkout was preserved. `express-rate-limit` was already 8.7.0; `zod@4.6.1` was staged with `npm pack`, API-smoked, and copied only into `node_modules/zod` after backing up 4.4.3 at `C:/Users/sihye/AppData/Local/Temp/cokacremote-zod-4.4.3-backup-20260909-174304`. `package.json` and `package-lock.json` hashes were verified unchanged. The Node child was recycled from PID 55092 to PID 58948 while the persistent Cloudflare tunnel remained running.
+
+Post-recycle health on both hosts reports 27/27 tools, exact `core-media-2026-09-09.1`, identical `d35aa2e6b5169363` runtime-policy fingerprints, OAuth enabled, and zero MCP error/abort counters on the fresh instances. Cross-host `npm run smoke:production` passed on the first attempt with valid protected-resource metadata for both public endpoints.
+
+Repository security controls remain: secret scanning, push protection, Dependabot vulnerability/security updates, automated security fixes, CodeQL default setup, private vulnerability reporting, weekly dependency PRs, and the active `Protect main history` deletion/non-fast-forward ruleset. GitHub currently exposes `secret_scanning_non_provider_patterns` and `secret_scanning_validity_checks` as disabled; an API enable attempt did not change those statuses, so they remain a non-blocking future repository-setting improvement rather than being reported as enabled.
+
 ## Connector-disappearance root causes addressed
 
 ### 1. Tool execution could starve discovery
