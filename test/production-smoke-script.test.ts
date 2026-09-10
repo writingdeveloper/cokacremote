@@ -8,10 +8,29 @@ import { afterEach, describe, expect, it } from "vitest";
 const servers: http.Server[] = [];
 const script = path.resolve("scripts/production-smoke.mjs");
 
-async function listen(body: Record<string, unknown>): Promise<string> {
-  const server = http.createServer((_request, response) => {
+type MetadataOverride = Record<string, unknown> | ((host: string) => Record<string, unknown>);
+
+async function listen(
+  healthBody: Record<string, unknown>,
+  metadataOverride?: MetadataOverride,
+): Promise<string> {
+  const server = http.createServer((request, response) => {
     response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify(body));
+    if (request.url === "/.well-known/oauth-protected-resource") {
+      const host = request.headers.host ?? "127.0.0.1";
+      const metadata = typeof metadataOverride === "function"
+        ? metadataOverride(host)
+        : metadataOverride ?? {
+            resource: `http://${host}/mcp`,
+            authorization_servers: [`http://${host}/`],
+            scopes_supported: ["mcp:tools"],
+            bearer_methods_supported: ["header"],
+            resource_name: "cokacremote",
+          };
+      response.end(JSON.stringify(metadata));
+      return;
+    }
+    response.end(JSON.stringify(healthBody));
   });
   servers.push(server);
   await new Promise<void>((resolve, reject) => {
@@ -47,7 +66,7 @@ afterEach(async () => {
 });
 
 describe("production smoke script", () => {
-  it("passes matching public-health payloads and parity", async () => {
+  it("passes matching public-health payloads, OAuth metadata, and parity", async () => {
     const payload = {
       status: "ok",
       service: "cokacremote",
@@ -61,7 +80,7 @@ describe("production smoke script", () => {
     const result = await runSmoke(`${first},${second}`);
     expect(result.code).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Production smoke PASS");
+    expect(result.stdout).toContain("OAuth metadata valid");
   });
 
   it("fails stale catalog payloads instead of silently accepting them", async () => {
@@ -77,5 +96,32 @@ describe("production smoke script", () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toMatch(/tools=21 expected=27/);
     expect(result.stderr).toMatch(/catalog=legacy expected=core-media-2026-09-09\.1/);
+  });
+
+  it("fails broken protected-resource metadata even when health is green", async () => {
+    const endpoint = await listen(
+      {
+        status: "ok",
+        service: "cokacremote",
+        registeredToolCount: 27,
+        toolCatalogRevision: "core-media-2026-09-09.1",
+        runtimePolicyFingerprint: "same-policy",
+        oauthEnabled: true,
+      },
+      (host) => ({
+        resource: `http://${host}/wrong-resource`,
+        authorization_servers: [],
+        scopes_supported: [],
+        bearer_methods_supported: [],
+        resource_name: "wrong-name",
+      }),
+    );
+    const result = await runSmoke(endpoint);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/resource=.*wrong-resource.*expected=.*\/mcp/);
+    expect(result.stderr).toMatch(/authorization_servers must include/);
+    expect(result.stderr).toMatch(/scopes_supported must include mcp:tools/);
+    expect(result.stderr).toMatch(/bearer_methods_supported must include header/);
+    expect(result.stderr).toMatch(/resource_name=wrong-name expected=cokacremote/);
   });
 });

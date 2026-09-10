@@ -14,57 +14,91 @@ if (!Number.isInteger(expectedToolCount) || expectedToolCount < 1) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const requestHeaders = {
+  "cache-control": "no-cache",
+  "user-agent": "cokacremote-production-smoke/0.1.0",
+};
 
-async function readHealth(url) {
+async function readJsonWithRetry(url, label) {
   const errors = [];
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const response = await fetch(url, {
-        headers: { "cache-control": "no-cache", "user-agent": "cokacremote-production-smoke/0.1.0" },
+        headers: requestHeaders,
         signal: AbortSignal.timeout(10_000),
       });
       const text = await response.text();
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 300)}`);
-      const body = JSON.parse(text);
-      return { url, attempt, body };
+      return { url, attempt, body: JSON.parse(text) };
     } catch (error) {
       errors.push(`attempt ${attempt}: ${error instanceof Error ? error.message : String(error)}`);
       if (attempt < attempts) await sleep(2_000 * attempt);
     }
   }
-  throw new Error(`${url} failed after ${attempts} attempts: ${errors.join(" | ")}`);
+  throw new Error(`${label} ${url} failed after ${attempts} attempts: ${errors.join(" | ")}`);
 }
 
-const results = await Promise.all(endpoints.map(readHealth));
+async function readEndpoint(healthUrl) {
+  const health = await readJsonWithRetry(healthUrl, "health");
+  const origin = new URL(healthUrl).origin;
+  const metadataUrl = new URL("/.well-known/oauth-protected-resource", origin).href;
+  const oauth = await readJsonWithRetry(metadataUrl, "OAuth protected-resource metadata");
+  return { health, oauth, origin };
+}
+
+const results = await Promise.all(endpoints.map(readEndpoint));
 const failures = [];
 const fingerprints = new Set();
-for (const { url, attempt, body } of results) {
+for (const { health, oauth, origin } of results) {
+  const body = health.body;
+  const metadata = oauth.body;
+  const expectedResource = `${origin}/mcp`;
+  const expectedAuthorizationServer = `${origin}/`;
   const summary = {
-    url,
-    attempt,
+    url: health.url,
+    attempt: health.attempt,
     status: body.status,
     service: body.service,
     version: body.version,
     registeredToolCount: body.registeredToolCount,
     toolCatalogRevision: body.toolCatalogRevision,
     runtimePolicyFingerprint: body.runtimePolicyFingerprint,
+    oauthEnabled: body.oauthEnabled,
+    oauthMetadataAttempt: oauth.attempt,
+    oauthResource: metadata.resource,
     processId: body.processId,
     serverInstanceId: body.serverInstanceId,
   };
   console.log(JSON.stringify(summary));
-  if (body.status !== "ok") failures.push(`${url}: status=${String(body.status)}`);
-  if (body.service !== "cokacremote") failures.push(`${url}: service=${String(body.service)}`);
+  if (body.status !== "ok") failures.push(`${health.url}: status=${String(body.status)}`);
+  if (body.service !== "cokacremote") failures.push(`${health.url}: service=${String(body.service)}`);
   if (body.registeredToolCount !== expectedToolCount) {
-    failures.push(`${url}: tools=${String(body.registeredToolCount)} expected=${expectedToolCount}`);
+    failures.push(`${health.url}: tools=${String(body.registeredToolCount)} expected=${expectedToolCount}`);
   }
   if (body.toolCatalogRevision !== expectedCatalogRevision) {
-    failures.push(`${url}: catalog=${String(body.toolCatalogRevision)} expected=${expectedCatalogRevision}`);
+    failures.push(`${health.url}: catalog=${String(body.toolCatalogRevision)} expected=${expectedCatalogRevision}`);
   }
-  if (body.oauthEnabled !== true) failures.push(`${url}: OAuth is not enabled as required`);
+  if (body.oauthEnabled !== true) failures.push(`${health.url}: OAuth is not enabled as required`);
   if (typeof body.runtimePolicyFingerprint !== "string" || body.runtimePolicyFingerprint.length === 0) {
-    failures.push(`${url}: missing runtimePolicyFingerprint`);
+    failures.push(`${health.url}: missing runtimePolicyFingerprint`);
   } else {
     fingerprints.add(body.runtimePolicyFingerprint);
+  }
+
+  if (metadata.resource !== expectedResource) {
+    failures.push(`${oauth.url}: resource=${String(metadata.resource)} expected=${expectedResource}`);
+  }
+  if (!Array.isArray(metadata.authorization_servers) || !metadata.authorization_servers.includes(expectedAuthorizationServer)) {
+    failures.push(`${oauth.url}: authorization_servers must include ${expectedAuthorizationServer}`);
+  }
+  if (!Array.isArray(metadata.scopes_supported) || !metadata.scopes_supported.includes("mcp:tools")) {
+    failures.push(`${oauth.url}: scopes_supported must include mcp:tools`);
+  }
+  if (!Array.isArray(metadata.bearer_methods_supported) || !metadata.bearer_methods_supported.includes("header")) {
+    failures.push(`${oauth.url}: bearer_methods_supported must include header`);
+  }
+  if (metadata.resource_name !== "cokacremote") {
+    failures.push(`${oauth.url}: resource_name=${String(metadata.resource_name)} expected=cokacremote`);
   }
 }
 if (fingerprints.size > 1) {
@@ -75,5 +109,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`- ${failure}`);
   process.exitCode = 1;
 } else {
-  console.log(`Production smoke PASS: ${results.length} endpoint(s), ${expectedToolCount} tools, ${expectedCatalogRevision}`);
+  console.log(`Production smoke PASS: ${results.length} endpoint(s), ${expectedToolCount} tools, ${expectedCatalogRevision}, OAuth metadata valid`);
 }
