@@ -19,22 +19,22 @@ const deployRoot = path.resolve("deploy/windows");
 describe.runIf(process.platform === "win32")("portable Windows deployment", () => {
   it("ships every runtime script and parses them with the PowerShell AST parser", () => {
     expect(existsSync(path.join(deployRoot, "hidden-powershell.vbs"))).toBe(true);
-    for (const script of scripts) {
+    const scriptPaths = scripts.map((script) => {
       const scriptPath = path.join(deployRoot, script);
       expect(existsSync(scriptPath), script).toBe(true);
-      const escaped = scriptPath.replaceAll("'", "''");
-      const output = execFileSync(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-Command",
-          `$tokens=$null;$errors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('${escaped}',[ref]$tokens,[ref]$errors);if($errors.Count){$errors|ForEach-Object{$_.Message};exit 1}`,
-        ],
-        { encoding: "utf8", windowsHide: true },
-      );
-      expect(output.trim(), script).toBe("");
-    }
-  });
+      return `'${scriptPath.replaceAll("'", "''")}'`;
+    });
+    const output = execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        `$files=@(${scriptPaths.join(",")});$messages=@();foreach($file in $files){$tokens=$null;$errors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$errors);foreach($error in $errors){$messages+=(Split-Path $file -Leaf)+': '+$error.Message}};if($messages.Count){$messages;exit 1}`,
+      ],
+      { encoding: "utf8", windowsHide: true },
+    );
+    expect(output.trim()).toBe("");
+  }, 30_000);
 
   it("installs, reports, and removes an isolated scheduled-task runtime", () => {
     const prefix = `cokacremote-test-${process.pid}`;
